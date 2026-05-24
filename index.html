@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RESONATIA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- PARTICLE BACKGROUND -->
+  <canvas id="bg-canvas"></canvas>
+
+  <!-- GLOBAL MUSIC VOLUME WIDGET (always on top, every screen) -->
+  <div id="music-vol-widget">
+    <span id="audio-icon" title="Toggle mute">🔊</span>
+    <input id="audio-vol" type="range" min="0" max="100" value="50" title="Music volume" />
+  </div>
+
+  <!-- TAP-TO-START OVERLAY (dismissed on first interaction, starts lobby music) -->
+  <div id="tap-to-start">
+    <div class="tap-inner">
+      <div class="tap-rune">✦</div>
+      <div class="tap-text">CLICK ANYWHERE TO BEGIN</div>
+    </div>
+  </div>
+
+  <!-- SCREEN: TITLE -->
+  <div id="screen-title" class="screen active">
+    <div class="title-container">
+      <div class="title-rune">◆ A Fantasy Visual Novel ◆</div>
+      <div class="title-main">Resonatia</div>
+      <div class="title-sub">Where the Winds of Elmenstria Carry Fate</div>
+      <div class="title-divider"><span class="title-divider-gem">⬥</span></div>
+      <button class="btn-start" id="btn-begin">Begin Your Journey</button>
+      <button class="btn-manual-open" id="btn-how-to-play">◆ How to Play ◆</button>
+    </div>
+    <div class="title-warning">◆ A tale of dice and destiny ◆</div>
+  </div>
+
+  <!-- USER MANUAL MODAL -->
+  <div id="manual-modal" class="manual-modal" aria-hidden="true">
+    <div class="manual-backdrop" id="manual-backdrop"></div>
+    <div class="manual-wrap" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+      <button class="btn-manual-close" id="btn-manual-close" aria-label="Close manual">&#10005;</button>
+      <div class="manual-title" id="manual-title">The Wanderer&rsquo;s Codex</div>
+      <div class="manual-subtitle">A Guide for Those Newly Arrived in Elmenstria</div>
+      <div class="manual-divider"><span class="manual-divider-gem">&#10677;</span></div>
+
+      <div class="manual-content">
+
+        <section class="manual-section">
+          <h3>The Quest</h3>
+          <p><em>Resonatia</em> is a choose-your-path visual novel with d20 dice mechanics. Your decisions, your statistics, and the roll of a twenty-sided die shape your fate.</p>
+        </section>
+
+        <section class="manual-section">
+          <h3>Starting Out</h3>
+          <ol class="manual-list">
+            <li>Take the brief <strong>personality quiz</strong>. Your answers determine your class &mdash; Wizard, Cleric, Barbarian, or Bard.</li>
+            <li>Choose your <strong>species</strong> for stat bonuses.</li>
+            <li>Pick a <strong>gender</strong> and <strong>appearance</strong> for your character sprite.</li>
+            <li>Step into the kingdom of <strong>Jurnaheim</strong>.</li>
+          </ol>
+        </section>
+
+        <section class="manual-section">
+          <h3>Stat Checks &amp; the d20</h3>
+          <p>When a choice is marked with a stat and Difficulty Class &mdash; for example <code class="manual-code">INT DC 13</code> &mdash; the game rolls a 20-sided die.</p>
+          <ul class="manual-list">
+            <li><strong>Total = d20 + your stat modifier</strong></li>
+            <li>Total &ge; DC &rarr; <span class="manual-good">Success</span></li>
+            <li><strong>Natural 20</strong> &rarr; <span class="manual-crit">Critical Success</span> (bonus reward)</li>
+            <li><strong>Natural 1</strong> &rarr; <span class="manual-bad">Critical Failure</span> (extra penalty)</li>
+            <li>Choices marked <em>&ldquo;Free&rdquo;</em> always succeed.</li>
+          </ul>
+        </section>
+
+        <section class="manual-section">
+          <h3>Your Stats</h3>
+          <div class="manual-kv">
+            <div><span class="manual-key">STR</span><span class="manual-val">Strength &mdash; physical might. Barbarian&rsquo;s specialty.</span></div>
+            <div><span class="manual-key">INT</span><span class="manual-val">Intelligence &mdash; arcane knowledge. Wizard&rsquo;s specialty.</span></div>
+            <div><span class="manual-key">CHA</span><span class="manual-val">Charisma &mdash; influence &amp; divine grace. Cleric and Bard.</span></div>
+            <div><span class="manual-key">DEX</span><span class="manual-val">Dexterity &mdash; dodge, accuracy, light weapons.</span></div>
+          </div>
+        </section>
+
+        <section class="manual-section">
+          <h3>Combat</h3>
+          <p>Battles are turn-based. Your party and the enemies act in alternating turns. On your turn, choose an action:</p>
+          <div class="manual-kv manual-kv--keys">
+            <div><span class="manual-key">Q</span><span class="manual-val"><strong>Strike</strong> &mdash; Basic weapon attack.</span></div>
+            <div><span class="manual-key">E</span><span class="manual-val"><strong>Ability</strong> &mdash; Class skill. Costs Stamina.</span></div>
+            <div><span class="manual-key">R</span><span class="manual-val"><strong>Defend</strong> &mdash; Halve incoming damage this round.</span></div>
+            <div><span class="manual-key">I</span><span class="manual-val"><strong>Inspect</strong> &mdash; View your stats and the enemy roster.</span></div>
+            <div><span class="manual-key">F</span><span class="manual-val"><strong>Wait</strong> &mdash; Skip your turn, recover Stamina.</span></div>
+          </div>
+          <p class="manual-note">When several foes stand against you, the game asks you to <em>click which enemy</em> to target after you choose an action.</p>
+        </section>
+
+        <section class="manual-section">
+          <h3>Health &amp; Stamina</h3>
+          <ul class="manual-list">
+            <li><strong>HP (Hit Points)</strong> &mdash; when this reaches zero, your character falls.</li>
+            <li><strong>SP (Stamina Points)</strong> &mdash; required to cast Abilities. Regenerates 8 SP per round.</li>
+            <li>Heavy armor on bosses reduces damage you deal &mdash; rely on Abilities for big hits.</li>
+          </ul>
+        </section>
+
+        <section class="manual-section">
+          <h3>Tips for Survival</h3>
+          <ul class="manual-list">
+            <li>Pre-battle dialogue choices grant <strong>buffs</strong>. Pick the option that matches your class&rsquo;s strength.</li>
+            <li>Don&rsquo;t burn all your SP early &mdash; bosses need your most powerful skills.</li>
+            <li><strong>Defend</strong> if your HP is low and a heavy enemy turn is coming.</li>
+            <li>Read the <strong>Combat Log</strong> &mdash; it tells you the exact roll, modifiers, and DC of every action.</li>
+          </ul>
+        </section>
+
+        <section class="manual-section">
+          <h3>Controls</h3>
+          <ul class="manual-list">
+            <li><strong>Click</strong> the dialogue box to advance text or skip a typewriter line.</li>
+            <li><strong>Click an enemy sprite</strong> to target it in combat.</li>
+            <li>Press <strong>H</strong> at any time to reopen this codex.</li>
+            <li>Press <strong>Esc</strong> to close any open menu.</li>
+          </ul>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN: QUIZ -->
+  <div id="screen-quiz" class="screen">
+    <div class="quiz-wrap">
+      <div class="quiz-title">The Oracle Speaks</div>
+      <div class="quiz-progress" id="quiz-progress">Question 1 of 5</div>
+      <div class="quiz-q" id="quiz-question"></div>
+      <div class="quiz-options" id="quiz-options"></div>
+    </div>
+  </div>
+
+  <!-- SCREEN: CHARACTER -->
+  <div id="screen-char" class="screen">
+    <div class="char-wrap">
+      <div class="char-title">Your Destiny Is Written</div>
+
+      <!--
+        ╔══════════════════════════════════════════════════════════╗
+        ║  ASSET SLOT — CLASS PORTRAIT                            ║
+        ║  Drop images into: assets/portraits/                    ║
+        ║  Filenames expected:                                     ║
+        ║    wizard.png | cleric.png | barbarian.png | bard.png   ║
+        ║  Recommended size: 300×400 px (portrait orientation)    ║
+        ║  Then update js/assets.js → PORTRAITS map               ║
+        ╚══════════════════════════════════════════════════════════╝
+      -->
+      <div class="char-portrait" id="char-portrait">
+        <span class="portrait-emoji" id="portrait-emoji">⚔️</span>
+        <!-- JS will inject <img> here when portrait asset exists -->
+      </div>
+
+      <div class="char-name" id="char-name">—</div>
+      <div class="char-subtitle" id="char-subtitle">—</div>
+      <div class="species-badges" id="species-badges"></div>
+
+      <div id="char-species-select">
+        <div class="species-select-label">Choose Your Species</div>
+        <div class="species-grid" id="species-grid"></div>
+      </div>
+
+      <div id="char-skin-select">
+        <div class="species-select-label">Choose Your Gender</div>
+        <div class="gender-grid" id="gender-grid"></div>
+        <div class="species-select-label">Choose Your Appearance</div>
+        <div class="skin-grid" id="skin-grid"></div>
+      </div>
+
+      <div class="char-stats" id="char-stats"></div>
+      <div class="char-flavor" id="char-flavor"></div>
+      <button class="btn-primary" id="btn-enter-world">Enter Jurnaheim</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: GAME -->
+  <div id="screen-game" class="screen">
+
+    <div class="game-hud">
+      <div class="hud-char" id="hud-char">—</div>
+      <div class="hud-score" id="hud-score">Score: 0</div>
+    </div>
+
+    <div class="game-scene">
+
+      <!--
+        ╔══════════════════════════════════════════════════════════╗
+        ║  ASSET SLOT — SCENE BACKGROUNDS                         ║
+        ║  Drop images into: assets/scenes/                       ║
+        ║  Filenames expected (match SCENES keys in assets.js):   ║
+        ║    title.jpg | tavern.jpg | streets.jpg                  ║
+        ║    alley.jpg | sunken-ward.jpg | archive.jpg            ║
+        ║    finale.jpg | ending-good.jpg | ending-bad.jpg        ║
+        ║  Recommended size: 1280×720 px minimum                  ║
+        ║  Images are cropped/covered to fill the scene area      ║
+        ╚══════════════════════════════════════════════════════════╝
+      -->
+      <div class="scene-bg" id="scene-bg"></div>
+
+      <!-- Emoji fallback shown when no scene image is loaded -->
+      <div class="scene-art" id="scene-art">🏰</div>
+
+      <!-- Character sprites — shown above the dialogue box -->
+      <div class="char-sprites" id="char-sprites"></div>
+
+      <div class="dialogue-panel">
+        <div class="dialogue-box" id="dialogue-box">
+          <div class="dialogue-speaker" id="dialogue-speaker">NARRATOR</div>
+          <div class="dialogue-text" id="dialogue-text"></div>
+          <div class="dialogue-continue" id="dialogue-continue">▼ click to continue</div>
+        </div>
+        <div class="choices-wrap" id="choices-wrap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DICE MODAL -->
+  <div id="dice-modal">
+    <div class="dice-wrap">
+      <div class="dice-label" id="dice-label">Rolling the Dice...</div>
+      <span class="dice-icon" id="dice-icon">🎲</span>
+      <div class="dice-result" id="dice-result">—</div>
+      <div class="dice-breakdown" id="dice-breakdown"></div>
+      <div class="dice-outcome" id="dice-outcome"></div>
+      <button id="dice-continue">Continue →</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: ENDING -->
+  <div id="screen-ending" class="screen">
+    <div class="ending-wrap">
+      <div class="ending-type" id="ending-type">&mdash;</div>
+      <div class="ending-title" id="ending-title">&mdash;</div>
+      <div class="ending-text" id="ending-text">&mdash;</div>
+
+      <!-- ═══ THE WANDERER'S RECORD ═══ -->
+      <div class="ending-report" id="ending-report">
+
+        <div class="ending-report-header">
+          <span class="ending-report-rule"></span>
+          <span class="ending-report-title">The Wanderer&rsquo;s Record</span>
+          <span class="ending-report-rule"></span>
+        </div>
+
+        <!-- Character profile -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Character Profile</h4>
+          <div class="ending-grid" id="ending-profile"></div>
+        </section>
+
+        <!-- Final attributes -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Final Attributes</h4>
+          <div class="ending-grid ending-grid--stats" id="ending-attributes"></div>
+        </section>
+
+        <!-- Journey flowchart -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Journey Map</h4>
+          <ol class="ending-journey" id="ending-journey"></ol>
+        </section>
+
+        <!-- Bonds forged -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Bonds Forged</h4>
+          <div class="ending-bonds" id="ending-bonds"></div>
+        </section>
+
+        <!-- Combat record -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Combat Record</h4>
+          <div class="ending-grid ending-grid--combat" id="ending-combat"></div>
+        </section>
+
+        <!-- Score breakdown -->
+        <section class="ending-section">
+          <h4 class="ending-section-title">Final Tally</h4>
+          <div class="ending-tally" id="ending-tally"></div>
+        </section>
+
+        <!-- Assessment -->
+        <section class="ending-section ending-section--assessment">
+          <h4 class="ending-section-title">Assessment</h4>
+          <p class="ending-assessment" id="ending-assessment">&mdash;</p>
+        </section>
+
+      </div>
+
+      <div class="ending-score" id="ending-score">&mdash;</div>
+      <button class="btn-restart" id="btn-restart">Play Again</button>
+    </div>
+  </div>
+
+  <!-- SCREEN: BATTLE -->
+  <div id="screen-battle" class="screen">
+
+    <!-- Scene background -->
+    <div class="btl-bg" id="btl-bg"></div>
+
+    <!-- Top bar: location | turn | round | end-turn -->
+    <div class="btl-topbar">
+      <div class="btl-location" id="btl-location-name">JURNAHEIM</div>
+      <div class="btl-topbar-mid">
+        <div class="btl-turn-label" id="btl-turn-indicator">YOUR TURN</div>
+        <div class="btl-round" id="btl-round-counter">Round 1</div>
+      </div>
+      <button class="btl-end-turn-btn" id="btl-end-turn">End Turn [F]</button>
+    </div>
+
+    <!-- Left sidebar: party + enemy roster -->
+    <div class="btl-party-sidebar" id="btl-party-sidebar">
+      <div class="btl-party-sidebar-title">Party</div>
+      <div class="btl-party-diamonds" id="btl-party-diamonds"></div>
+      <div class="btl-party-sidebar-title btl-party-sidebar-title--enemy">Enemies</div>
+      <div class="btl-party-diamonds btl-party-diamonds--enemy" id="btl-enemy-diamonds"></div>
+    </div>
+
+    <!-- Battlefield: enemies left, player right -->
+    <div class="btl-field" id="btl-field">
+      <div class="btl-side btl-side--enemy" id="btl-enemy-side"></div>
+      <div class="btl-side btl-side--player" id="btl-player-side"></div>
+    </div>
+
+    <!-- Trail canvas (weapon effects drawn here) -->
+    <canvas class="btl-trail-canvas" id="btl-trail-canvas"></canvas>
+
+    <!-- Weapon animation layer -->
+    <div class="btl-weapon-layer" id="btl-weapon-layer"></div>
+
+    <!-- Hit flash overlay -->
+    <div class="btl-flash" id="btl-flash"></div>
+
+    <!-- Center action text flash (ATTACK! / CRITICAL! / MISS!) -->
+    <div class="btl-action-text hidden" id="btl-action-text"></div>
+
+    <!-- Floating turn triangle — positioned above active sprite by JS -->
+    <div class="btl-turn-triangle hidden" id="btl-turn-triangle">&#9660;</div>
+
+    <!-- Bottom panel: party cards + action bar + char info + log -->
+    <div class="btl-panel" id="btl-panel">
+
+      <!-- Action buttons -->
+      <div class="btl-action-bar" id="btl-action-bar">
+        <button class="btl-act" id="bact-strike">
+          <span class="btl-act-key">Q</span>
+          <span class="btl-act-icon">&#9876;</span>
+          <span class="btl-act-label">Strike</span>
+        </button>
+        <button class="btl-act" id="bact-ability">
+          <span class="btl-act-key">E</span>
+          <span class="btl-act-icon">&#10022;</span>
+          <span class="btl-act-label">Ability</span>
+        </button>
+        <button class="btl-act" id="bact-defend">
+          <span class="btl-act-key">R</span>
+          <span class="btl-act-icon">&#128737;</span>
+          <span class="btl-act-label">Defend</span>
+        </button>
+        <button class="btl-act" id="bact-inspect">
+          <span class="btl-act-key">I</span>
+          <span class="btl-act-icon">&#128202;</span>
+          <span class="btl-act-label">Inspect</span>
+        </button>
+        <button class="btl-act" id="bact-wait">
+          <span class="btl-act-key">F</span>
+          <span class="btl-act-icon">&#9675;</span>
+          <span class="btl-act-label">Wait</span>
+        </button>
+      </div>
+
+      <!-- Active character info — center -->
+      <div class="btl-char-info" id="btl-char-info">
+        <div class="btl-char-info-name" id="btl-char-info-name">—</div>
+        <div class="btl-char-info-bars">
+          <div class="btl-char-bar-row">
+            <span class="btl-char-bar-lbl">HP</span>
+            <div class="btl-char-bar-track">
+              <div class="btl-char-bar-fill btl-char-bar-fill--hp" id="btl-char-hp-bar" style="width:100%"></div>
+            </div>
+            <span class="btl-char-bar-val" id="btl-char-hp-val">—</span>
+          </div>
+          <div class="btl-char-bar-row">
+            <span class="btl-char-bar-lbl">SP</span>
+            <div class="btl-char-bar-track">
+              <div class="btl-char-bar-fill btl-char-bar-fill--sp" id="btl-char-sp-bar" style="width:100%"></div>
+            </div>
+            <span class="btl-char-bar-val" id="btl-char-sp-val">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Combat log -->
+      <div class="btl-log-panel">
+        <div class="btl-log-title">Combat Log</div>
+        <div class="btl-log" id="btl-log">—</div>
+      </div>
+
+    </div>
+
+    <!-- Ability submenu (slides above panel) -->
+    <div class="btl-ability-menu hidden" id="btl-ability-menu">
+      <!-- Populated by battle.js -->
+    </div>
+
+    <!-- Inspect / stats panel (slides above panel) -->
+    <div class="btl-inspect-panel hidden" id="btl-inspect-panel">
+      <!-- Populated by battle.js -->
+    </div>
+
+    <!-- Enemy turn overlay -->
+    <div class="btl-enemy-turn-overlay hidden" id="btl-enemy-turn-overlay">
+      <span id="btl-enemy-turn-name">Enemy</span> is acting...
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       GAME OVER MODAL — replaces the assessment report
+       when the player character falls in battle.
+       ═══════════════════════════════════════════════ -->
+  <div id="gameover-modal" class="gameover-modal" aria-hidden="true">
+    <div class="gameover-backdrop"></div>
+    <div class="gameover-wrap" role="dialog" aria-modal="true" aria-labelledby="gameover-title">
+      <div class="gameover-rune">&#10031;</div>
+      <div class="gameover-title" id="gameover-title">YOU HAVE FALLEN</div>
+      <div class="gameover-divider"></div>
+      <p class="gameover-flavor" id="gameover-flavor">
+        Your story ends here, in cold silence. The runes whisper your name one last time, then forget it forever.
+      </p>
+      <button class="gameover-btn" id="btn-gameover-restart">Return to Title</button>
+    </div>
+  </div>
+
+  <!-- JS load order matters: assets → engine → audio → battle → story → main -->
+  <script src="js/assets.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/battle.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/main.js"></script>
+
+</body>
+</html>

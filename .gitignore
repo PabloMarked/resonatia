@@ -1,0 +1,37 @@
+# ─── OS junk ────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ─── Editor / IDE ───────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ─── Office lock files / temp ───────────────────────────
+~$*
+*.tmp
+*.bak
+
+# ─── Logs ───────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ─── Node (in case you ever add tooling) ────────────────
+node_modules/
+package-lock.json
+
+# ─── Local environment / secrets ────────────────────────
+.env
+.env.local
+
+# ─── Built archives (don't commit zips of your own repo) ─
+*.zip
