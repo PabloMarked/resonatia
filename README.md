@@ -8,7 +8,9 @@
 
 ## Play
 
-Open `index.html` in any modern browser. No server required, no install needed.
+**🎮 Play online:** [pablomarked.github.io/resonatia](https://pablomarked.github.io/resonatia/)
+
+Or open `index.html` in any modern browser locally. No server required, no install needed.
 
 ```
 resonatia/
