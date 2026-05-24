@@ -1717,7 +1717,27 @@ ol.manual-list li::before {
   width: auto;
   object-fit: contain;
   filter: drop-shadow(0 4px 12px rgba(0,0,0,0.85));
-  transition: filter 0.25s, transform 0.2s;
+  transition: filter 0.25s, transform 0.2s, height 0.2s;
+}
+
+/* Auto-shrink sprites when a side gets crowded so 3+ combatants fit
+   without the player having to zoom out. Uses :has() (modern browser
+   support, 2023+). Enemy nameplates add ~50 px per card, so the enemy
+   side overflows faster than the player side — both branches handle
+   it uniformly. Gaps shrink too, otherwise tall sprites + tall gaps
+   still don't fit on shorter screens. */
+.btl-side:has(.combatant-card:nth-child(3)) {
+  gap: 0.4rem;
+}
+.btl-side:has(.combatant-card:nth-child(3)) .combatant-sprite {
+  height: clamp(70px, 14vh, 145px);
+}
+
+.btl-side:has(.combatant-card:nth-child(4)) {
+  gap: 0.25rem;
+}
+.btl-side:has(.combatant-card:nth-child(4)) .combatant-sprite {
+  height: clamp(55px, 10vh, 105px);
 }
 
 .combatant-sprite.state-injured {
