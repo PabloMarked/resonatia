@@ -448,40 +448,97 @@
 
   <!-- ═══════════════════════════════════════════════
        MULTIPLAYER LOBBY MODAL
-       Create or join a 4-letter room code to play co-op.
+       Five panels — name, choose action, create, join, browse, in-room
        ═══════════════════════════════════════════════ -->
   <div id="lobby-modal" class="lobby-modal" aria-hidden="true">
     <div class="lobby-backdrop" id="lobby-backdrop"></div>
     <div class="lobby-wrap" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
       <button class="lobby-close" id="btn-lobby-close" aria-label="Close lobby">&#10005;</button>
-      <h2 id="lobby-title">Play with Friends</h2>
+      <h2 id="lobby-title">Co-Op Adventure</h2>
       <div class="lobby-divider"></div>
 
-      <!-- Panel 1: Choose host or join -->
-      <div class="lobby-panel" id="lobby-choice">
-        <label class="lobby-label">Your Name</label>
-        <input type="text" id="lobby-name" placeholder="Adventurer" maxlength="20" />
+      <!-- Panel 1: Name entry (MANDATORY — gate to everything else) -->
+      <div class="lobby-panel" id="lobby-name-panel">
+        <label class="lobby-label">Choose Your Adventurer Name</label>
+        <input type="text" id="lobby-name" placeholder="Enter a name (required)" maxlength="20" />
         <div class="lobby-buttons">
-          <button id="btn-host-room" class="lobby-btn-primary">Create Room</button>
-          <button id="btn-join-room" class="lobby-btn-primary">Join Room</button>
+          <button id="btn-name-continue" class="lobby-btn-primary">Continue &rarr;</button>
         </div>
-        <p class="lobby-hint">Up to 4 players can join a room. The creator becomes host.</p>
+        <p class="lobby-hint">Your name will be visible to all party members.</p>
       </div>
 
-      <!-- Panel 2: Enter room code -->
+      <!-- Panel 2: Choose Create / Join / Browse -->
+      <div class="lobby-panel hidden" id="lobby-choice">
+        <div class="lobby-greeting" id="lobby-greeting">Welcome, traveler.</div>
+        <button id="btn-create-flow" class="lobby-action-card">
+          <div class="lobby-action-title">⚔ Create a Room</div>
+          <div class="lobby-action-desc">Start a new adventure as the host. Choose public or private.</div>
+        </button>
+        <button id="btn-join-flow" class="lobby-action-card">
+          <div class="lobby-action-title">🔑 Join with a Code</div>
+          <div class="lobby-action-desc">Enter a 4-letter code your friend shared with you.</div>
+        </button>
+        <button id="btn-browse-flow" class="lobby-action-card">
+          <div class="lobby-action-title">🌍 Browse Public Rooms</div>
+          <div class="lobby-action-desc">Find open adventures hosted by other players.</div>
+        </button>
+        <div class="lobby-buttons">
+          <button id="btn-change-name" class="lobby-btn-secondary">Change Name</button>
+        </div>
+      </div>
+
+      <!-- Panel 3: Create — choose public or private -->
+      <div class="lobby-panel hidden" id="lobby-create">
+        <label class="lobby-label">Room Visibility</label>
+        <div class="lobby-visibility-toggle">
+          <button id="vis-public"  class="vis-option selected">
+            <div class="vis-icon">🌍</div>
+            <div class="vis-name">Public</div>
+            <div class="vis-desc">Anyone can find it in the browser</div>
+          </button>
+          <button id="vis-private" class="vis-option">
+            <div class="vis-icon">🔒</div>
+            <div class="vis-name">Private</div>
+            <div class="vis-desc">Only people with the code can join</div>
+          </button>
+        </div>
+        <div class="lobby-buttons">
+          <button id="btn-create-back" class="lobby-btn-secondary">&larr; Back</button>
+          <button id="btn-create-confirm" class="lobby-btn-primary">Create Room</button>
+        </div>
+      </div>
+
+      <!-- Panel 4: Join with code -->
       <div class="lobby-panel hidden" id="lobby-join">
         <label class="lobby-label">Room Code</label>
         <input type="text" id="lobby-code" placeholder="XXXX" maxlength="4" />
         <div class="lobby-buttons">
-          <button id="btn-back" class="lobby-btn-secondary">&larr; Back</button>
+          <button id="btn-join-back" class="lobby-btn-secondary">&larr; Back</button>
           <button id="btn-connect" class="lobby-btn-primary">Connect</button>
         </div>
       </div>
 
-      <!-- Panel 3: In the room -->
+      <!-- Panel 5: Browse public rooms -->
+      <div class="lobby-panel hidden" id="lobby-browse">
+        <div class="lobby-browse-header">
+          <span class="lobby-label" style="margin: 0;">Open Adventures</span>
+          <button id="btn-refresh-browse" class="lobby-icon-btn" title="Refresh">⟳</button>
+        </div>
+        <div id="lobby-browse-list" class="lobby-browse-list">
+          <div class="lobby-browse-empty">Searching for public rooms…</div>
+        </div>
+        <div class="lobby-buttons">
+          <button id="btn-browse-back" class="lobby-btn-secondary">&larr; Back</button>
+        </div>
+      </div>
+
+      <!-- Panel 6: In a room -->
       <div class="lobby-panel hidden" id="lobby-room">
         <div class="lobby-roomcode-wrap">
-          <div class="lobby-roomcode-label">Room Code</div>
+          <div class="lobby-roomcode-label">
+            <span id="lobby-room-vis-badge" class="lobby-vis-badge">Public</span>
+            Room Code
+          </div>
           <div class="lobby-roomcode" id="lobby-roomcode">&mdash;</div>
           <div class="lobby-roomcode-hint">Share this with your party</div>
         </div>

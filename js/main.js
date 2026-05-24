@@ -304,35 +304,54 @@ const GameOver = (() => {
 })();
 
 /* ──────────────────────────────────────────────
-   MULTIPLAYER LOBBY  (Phase 1 — connection foundation)
-   Opens from the title screen "Play with Friends" button.
-   Hands off connection to the Network module — no game-state
-   sync yet (that's phase 2).
+   MULTIPLAYER LOBBY  (Phase 4 — full UX with room browser)
+   Six panels: name → choice → create / join / browse → in-room.
+   Username is mandatory; entry is gated on a non-empty name.
+   Public rooms are registered with a P2P broker for browsing.
    ────────────────────────────────────────────── */
 const Lobby = (() => {
   const modal       = document.getElementById('lobby-modal');
   const backdrop    = document.getElementById('lobby-backdrop');
   const closeBtn    = document.getElementById('btn-lobby-close');
 
+  const namePanel   = document.getElementById('lobby-name-panel');
   const choicePanel = document.getElementById('lobby-choice');
+  const createPanel = document.getElementById('lobby-create');
   const joinPanel   = document.getElementById('lobby-join');
+  const browsePanel = document.getElementById('lobby-browse');
   const roomPanel   = document.getElementById('lobby-room');
+  const ALL_PANELS  = [namePanel, choicePanel, createPanel, joinPanel, browsePanel, roomPanel];
 
   const nameInput   = document.getElementById('lobby-name');
   const codeInput   = document.getElementById('lobby-code');
   const playersList = document.getElementById('lobby-players');
   const roomCodeEl  = document.getElementById('lobby-roomcode');
+  const visBadgeEl  = document.getElementById('lobby-room-vis-badge');
+  const greetingEl  = document.getElementById('lobby-greeting');
+  const browseList  = document.getElementById('lobby-browse-list');
   const statusEl    = document.getElementById('lobby-status');
 
-  const btnHost     = document.getElementById('btn-host-room');
-  const btnJoin     = document.getElementById('btn-join-room');
-  const btnConnect  = document.getElementById('btn-connect');
-  const btnBack     = document.getElementById('btn-back');
-  const btnLeave    = document.getElementById('btn-leave');
-  const btnStartCoop = document.getElementById('btn-start-coop');
+  // Buttons
+  const btnNameContinue  = document.getElementById('btn-name-continue');
+  const btnCreateFlow    = document.getElementById('btn-create-flow');
+  const btnJoinFlow      = document.getElementById('btn-join-flow');
+  const btnBrowseFlow    = document.getElementById('btn-browse-flow');
+  const btnChangeName    = document.getElementById('btn-change-name');
+  const btnCreateBack    = document.getElementById('btn-create-back');
+  const btnCreateConfirm = document.getElementById('btn-create-confirm');
+  const btnJoinBack      = document.getElementById('btn-join-back');
+  const btnConnect       = document.getElementById('btn-connect');
+  const btnBrowseBack    = document.getElementById('btn-browse-back');
+  const btnRefreshBrowse = document.getElementById('btn-refresh-browse');
+  const btnLeave         = document.getElementById('btn-leave');
+  const btnStartCoop     = document.getElementById('btn-start-coop');
+  const visPublicBtn     = document.getElementById('vis-public');
+  const visPrivateBtn    = document.getElementById('vis-private');
+
+  let chosenVisibility = 'public';   // default selection on create panel
 
   function _showPanel(panelEl) {
-    [choicePanel, joinPanel, roomPanel].forEach(p => p.classList.add('hidden'));
+    ALL_PANELS.forEach(p => p.classList.add('hidden'));
     panelEl.classList.remove('hidden');
   }
 
@@ -340,26 +359,43 @@ const Lobby = (() => {
     statusEl.textContent = msg || '';
   }
 
+  function _getStoredName() {
+    return (localStorage.getItem('resonatia-name') || '').trim();
+  }
+
   function open() {
     modal.classList.add('open');
     modal.setAttribute('aria-hidden', 'false');
-    // Remember the player's name across sessions for convenience.
-    nameInput.value = localStorage.getItem('resonatia-name') || '';
-    codeInput.value = '';
     _setStatus('');
     // If already in a room (re-opened lobby), jump back to room panel.
     if (Network.isOnline()) {
       roomCodeEl.textContent = Network.getRoomCode() || '—';
+      visBadgeEl.textContent = Network.isPublic() ? 'Public' : 'Private';
+      visBadgeEl.className   = 'lobby-vis-badge ' + (Network.isPublic() ? 'is-public' : 'is-private');
       _refreshPlayers(Network.getPlayers());
       _showPanel(roomPanel);
-    } else {
+      return;
+    }
+    // Otherwise gate on username
+    const stored = _getStoredName();
+    if (stored) {
+      nameInput.value = stored;
+      _showGreeting(stored);
       _showPanel(choicePanel);
+    } else {
+      nameInput.value = '';
+      _showPanel(namePanel);
+      setTimeout(() => nameInput.focus(), 80);
     }
   }
 
   function close() {
     modal.classList.remove('open');
     modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function _showGreeting(name) {
+    greetingEl.textContent = `Welcome, ${name}.`;
   }
 
   function _refreshPlayers(players) {
@@ -371,75 +407,143 @@ const Lobby = (() => {
       li.innerHTML = `<span>${p.name}${crown}</span><span class="slot-badge">SLOT ${p.slot + 1}</span>`;
       playersList.appendChild(li);
     });
-
-    // Show "Start Adventure" only to the host AND only if there are 2+ players.
+    // Host sees "Start Adventure" once at least one other player is present.
     const showStart = Network.isHost() && players.length >= 2;
     btnStartCoop.classList.toggle('hidden', !showStart);
   }
 
-  /* ── Wire buttons ── */
-  closeBtn.addEventListener('click', close);
-  backdrop.addEventListener('click', close);
-
-  btnHost.addEventListener('click', async () => {
-    const name = nameInput.value.trim();
-    if (!name) { _setStatus('Enter your name first.'); nameInput.focus(); return; }
-    localStorage.setItem('resonatia-name', name);
-    btnHost.disabled = true;
-    try {
-      const code = await Network.host(name);
-      roomCodeEl.textContent = code;
-      _showPanel(roomPanel);
-    } catch (e) {
-      _setStatus('Could not create room: ' + (e.message || e));
-    } finally {
-      btnHost.disabled = false;
+  /* ── Browse: query broker and render the public-room list ── */
+  async function _refreshBrowseList() {
+    browseList.innerHTML = '<div class="lobby-browse-empty">Searching for public rooms…</div>';
+    const rooms = await Network.listPublicRooms();
+    if (!rooms || rooms.length === 0) {
+      browseList.innerHTML = '<div class="lobby-browse-empty">No public rooms found yet. Be the first to host one!</div>';
+      return;
     }
-  });
+    browseList.innerHTML = '';
+    rooms.forEach(r => {
+      const card = document.createElement('button');
+      card.className = 'lobby-browse-card';
+      card.innerHTML = `
+        <div class="lobby-browse-name">${r.name}'s Room</div>
+        <div class="lobby-browse-meta">
+          <span class="lobby-browse-code">${r.code}</span>
+          <span class="lobby-browse-players">${r.players}/${r.max}</span>
+        </div>
+      `;
+      card.disabled = r.players >= r.max;
+      card.onclick = () => _joinRoom(r.code);
+      browseList.appendChild(card);
+    });
+  }
 
-  btnJoin.addEventListener('click', () => {
-    const name = nameInput.value.trim();
-    if (!name) { _setStatus('Enter your name first.'); nameInput.focus(); return; }
-    localStorage.setItem('resonatia-name', name);
-    _setStatus('');
-    _showPanel(joinPanel);
-    setTimeout(() => codeInput.focus(), 50);
-  });
-
-  btnConnect.addEventListener('click', async () => {
-    const code = codeInput.value.trim().toUpperCase();
-    if (code.length !== 4) { _setStatus('Room codes are 4 letters.'); return; }
+  async function _joinRoom(code) {
     btnConnect.disabled = true;
+    _setStatus('');
     try {
-      await Network.join(code, nameInput.value.trim());
+      await Network.join(code, _getStoredName());
       roomCodeEl.textContent = code;
+      visBadgeEl.textContent = Network.isPublic() ? 'Public' : 'Private';
+      visBadgeEl.className   = 'lobby-vis-badge ' + (Network.isPublic() ? 'is-public' : 'is-private');
       _showPanel(roomPanel);
     } catch (e) {
       _setStatus(e.message || 'Could not join.');
     } finally {
       btnConnect.disabled = false;
     }
+  }
+
+  /* ── Wire buttons ── */
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+
+  // Step 1: Name entry (mandatory)
+  btnNameContinue.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      _setStatus('Please enter a name to continue.');
+      nameInput.focus();
+      return;
+    }
+    if (name.length < 2) {
+      _setStatus('Name must be at least 2 characters.');
+      return;
+    }
+    localStorage.setItem('resonatia-name', name);
+    _setStatus('');
+    _showGreeting(name);
+    _showPanel(choicePanel);
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnNameContinue.click();
   });
 
-  // Enter key in code field = Connect
+  // Step 2: Choice panel
+  btnChangeName.addEventListener('click', () => { _setStatus(''); _showPanel(namePanel); });
+  btnCreateFlow.addEventListener('click', () => { _setStatus(''); _showPanel(createPanel); });
+  btnJoinFlow.addEventListener('click', () => {
+    _setStatus('');
+    codeInput.value = '';
+    _showPanel(joinPanel);
+    setTimeout(() => codeInput.focus(), 50);
+  });
+  btnBrowseFlow.addEventListener('click', () => {
+    _setStatus('');
+    _showPanel(browsePanel);
+    _refreshBrowseList();
+  });
+
+  // Step 3a: Create — public/private toggle
+  visPublicBtn.addEventListener('click', () => {
+    chosenVisibility = 'public';
+    visPublicBtn.classList.add('selected');
+    visPrivateBtn.classList.remove('selected');
+  });
+  visPrivateBtn.addEventListener('click', () => {
+    chosenVisibility = 'private';
+    visPrivateBtn.classList.add('selected');
+    visPublicBtn.classList.remove('selected');
+  });
+  btnCreateBack.addEventListener('click', () => { _setStatus(''); _showPanel(choicePanel); });
+  btnCreateConfirm.addEventListener('click', async () => {
+    const name = _getStoredName();
+    if (!name) { _showPanel(namePanel); return; }
+    btnCreateConfirm.disabled = true;
+    try {
+      const { code, isPublic } = await Network.host(name, { public: chosenVisibility === 'public' });
+      roomCodeEl.textContent = code;
+      visBadgeEl.textContent = isPublic ? 'Public' : 'Private';
+      visBadgeEl.className   = 'lobby-vis-badge ' + (isPublic ? 'is-public' : 'is-private');
+      _showPanel(roomPanel);
+    } catch (e) {
+      _setStatus('Could not create room: ' + (e.message || e));
+    } finally {
+      btnCreateConfirm.disabled = false;
+    }
+  });
+
+  // Step 3b: Join with code
+  btnJoinBack.addEventListener('click', () => { _setStatus(''); _showPanel(choicePanel); });
+  btnConnect.addEventListener('click', () => {
+    const code = codeInput.value.trim().toUpperCase();
+    if (code.length !== 4) { _setStatus('Room codes are 4 letters.'); return; }
+    _joinRoom(code);
+  });
   codeInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') btnConnect.click();
   });
 
-  btnBack.addEventListener('click', () => {
-    _setStatus('');
-    _showPanel(choicePanel);
-  });
+  // Step 3c: Browse
+  btnBrowseBack.addEventListener('click', () => { _setStatus(''); _showPanel(choicePanel); });
+  btnRefreshBrowse.addEventListener('click', _refreshBrowseList);
 
+  // In-room actions
   btnLeave.addEventListener('click', () => {
     Network.disconnect();
     _setStatus('Left the room.');
     _showPanel(choicePanel);
   });
-
   btnStartCoop.addEventListener('click', () => {
-    // Phase 2: host kicks off the adventure. Clients receive the start-game
-    // message via Multiplayer's network hook and jump into spectator mode.
     if (!Network.isHost()) {
       _setStatus('Only the host can start the adventure.');
       return;
