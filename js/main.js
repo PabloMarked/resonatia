@@ -454,6 +454,8 @@ const Lobby = (() => {
       visBadgeEl.textContent = Network.isPublic() ? 'Public' : 'Private';
       visBadgeEl.className   = 'lobby-vis-badge ' + (Network.isPublic() ? 'is-public' : 'is-private');
       _showPanel(roomPanel);
+      // Defensive: force-refresh the player list right after panel becomes visible
+      _refreshPlayers(Network.getPlayers());
     } catch (e) {
       _setStatus(e.message || 'Could not join.');
     } finally {
@@ -523,6 +525,9 @@ const Lobby = (() => {
       visBadgeEl.textContent = isPublic ? 'Public' : 'Private';
       visBadgeEl.className   = 'lobby-vis-badge ' + (isPublic ? 'is-public' : 'is-private');
       _showPanel(roomPanel);
+      // Defensive: force-refresh the player list right after the panel becomes
+      // visible. Listener-driven updates can race against panel visibility.
+      _refreshPlayers(Network.getPlayers());
     } catch (e) {
       _setStatus('Could not create room: ' + (e.message || e));
     } finally {

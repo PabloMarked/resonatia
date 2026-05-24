@@ -619,7 +619,12 @@ const Multiplayer = (() => {
       }
       if (typeof GameState !== 'undefined') GameState.multiplayerParty = party;
       if (Network.isHost()) {
-        if (typeof startGame === 'function') startGame();
+        // IMPORTANT: use window.startGame to escape this IIFE's local scope.
+        // Without `window.`, JavaScript resolves `startGame` to the LOCAL
+        // Multiplayer.startGame defined a few lines above — which would
+        // re-broadcast 'start-game' and snap everyone BACK to the quiz.
+        // That was the "after enter world, loops back to quiz" bug.
+        if (typeof window.startGame === 'function') window.startGame();
       } else {
         // Clients become spectators for the shared story (until Phase 6)
         _showSpectatorBadge();
