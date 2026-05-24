@@ -33,6 +33,20 @@ const Multiplayer = (() => {
   let _applying = false;  // true while we're applying a remote message
   let _started  = false;  // has the co-op adventure started?
 
+  /* Phase 5 — Per-player quiz/charselect runs in PER_PLAYER_MODE.
+     During this phase, each player's screen drives independent quiz +
+     character-select UI. The host stops broadcasting GameState (which
+     would otherwise overwrite each client's local quiz progress).
+     When all players have locked in their characters (or AFK-timer
+     fires), the host assembles the party and broadcasts 'start-story'
+     so everyone enters the narrative together. */
+  let _perPlayerMode = false;
+  const PER_PLAYER_SCREENS = ['screen-quiz', 'screen-char'];
+
+  function _isPerPlayerScreen(id) {
+    return PER_PLAYER_SCREENS.includes(id);
+  }
+
   /* ── Broadcast helpers ─────────────────────────────────── */
   /** Only the host broadcasts state; clients only listen. */
   function _hostSend(msg) {
@@ -61,6 +75,11 @@ const Multiplayer = (() => {
           id, gameState: _snapshotGameState(),
           config: battleConfig
         });
+      } else if (_isPerPlayerScreen(id) && _perPlayerMode) {
+        // Per-player phase: DO NOT broadcast screen changes for the quiz
+        // or char-select. Each player drives their own progression and
+        // arrives at the next screen on their own clock. A broadcast here
+        // would force clients onto screens they haven't built locally.
       } else {
         _hostSend({ type: 'screen', id, gameState: _snapshotGameState() });
       }
@@ -193,14 +212,52 @@ const Multiplayer = (() => {
       switch (msg.type) {
         case 'start-game':
           _started = true;
-          if (msg.gameState) _restoreGameState(msg.gameState);
+          _perPlayerMode = true;
+          // Reset MY game state and run the quiz LOCALLY.
+          if (typeof GameState !== 'undefined') GameState.reset();
+          GameState.player.flags = GameState.player.flags || {};
           Lobby.close();
-          _showSpectatorBadge();
+          _hideSpectatorBadge();   // spectator badge shouldn't appear during per-player phase
+          // Each player renders their own quiz independently.
+          Screen.show('screen-quiz');
+          if (typeof renderQuiz === 'function') renderQuiz();
+          Phase5.beginQuizTimer();
           break;
 
         case 'screen':
           if (msg.gameState) _restoreGameState(msg.gameState);
           Screen.show(msg.id);
+          // After the per-player phase ends, story screens come synced.
+          // When the spectator badge applies (post-assembly), show it.
+          if (msg.id === 'screen-game' && _started && Network.isClient()) {
+            _showSpectatorBadge();
+          }
+          break;
+
+        case 'screen-perplayer':
+          // Host signals all clients to advance to their own per-player screen
+          Screen.show(msg.id);
+          if (msg.id === 'screen-quiz' && typeof renderQuiz === 'function') {
+            renderQuiz();
+            Phase5.beginQuizTimer();
+          }
+          break;
+
+        /* ── PHASE 5 — Per-player party assembly ─────────── */
+        case 'player-ready':
+          Phase5.receivePlayerReady(msg.peerId, msg.character);
+          break;
+
+        case 'player-ai':
+          // A player went AI/disconnected — host informs everyone
+          Phase5.markAsAI(msg.peerId);
+          break;
+
+        case 'start-story':
+          Phase5.applyAssembledParty(msg.party);
+          _perPlayerMode = false;
+          // Restore spectator badge for non-host players (story is host-driven for now)
+          if (Network.isClient()) _showSpectatorBadge();
           break;
 
         case 'scene':
@@ -342,22 +399,288 @@ const Multiplayer = (() => {
 
   /* ── Public API ────────────────────────────────────────── */
 
-  /** Host: kick off the co-op adventure for all connected players. */
+  /** Host: kick off the co-op adventure for all connected players.
+      Phase 5: enters PER_PLAYER_MODE — each player runs their own
+      quiz and char-select locally. Once everyone is ready (or AFK
+      timer fires), the assembled party launches the story. */
   function startGame() {
     if (!Network.isHost()) return;
     _started = true;
-    // Send a fresh snapshot so clients start with identical state.
-    // GameState.reset() will be called by btn-begin handler too on host side.
+    _perPlayerMode = true;
     if (typeof GameState !== 'undefined') GameState.reset();
-    Network.send({ type: 'start-game', gameState: _snapshotGameState() });
+    // Initialize Phase 5 tracker for the host
+    Phase5.beginAssembly();
+    // Tell every connected client to start their own quiz
+    Network.send({ type: 'start-game' });
     Lobby.close();
-    // Host now runs the existing single-player flow — quiz, char select,
-    // story, etc. — and every transition gets broadcast via the hooks.
+    // Host also runs the quiz locally — same flow as a client
     Screen.show('screen-quiz');
     renderQuiz();
+    Phase5.beginQuizTimer();
   }
 
   function isStarted() { return _started; }
+
+  /* ══════════════════════════════════════════════════════════
+     PHASE 5 — PARTY ASSEMBLY
+     Tracks each connected player's quiz/character progress and
+     coordinates the transition from per-player setup → host-driven
+     shared story. Handles AFK auto-pick + disconnect → AI fallback.
+     ══════════════════════════════════════════════════════════ */
+  const Phase5 = (() => {
+    let assembled = {};          // peerId → character data (locked-in)
+    let aiPlayers = {};          // peerId → true (disconnected or timed-out)
+    let activeTimer = null;      // {handle, deadline, kind}
+    let assemblyTimer = null;    // hard fallback: assemble after N seconds regardless
+
+    const QUIZ_TIMEOUT_MS    = 45000;   // total time to finish the quiz
+    const CHAR_TIMEOUT_MS    = 60000;   // total time to finish char select
+    const ASSEMBLY_TIMEOUT_MS = 120000; // hard cap — start story even if some haven't readied
+
+    function beginAssembly() {
+      assembled = {};
+      aiPlayers = {};
+      // Hard timeout — even if some players never click, story launches
+      // with whatever we have (rest become AI).
+      if (assemblyTimer) clearTimeout(assemblyTimer);
+      assemblyTimer = setTimeout(() => {
+        if (Network.isHost()) _hostForceLaunch();
+      }, ASSEMBLY_TIMEOUT_MS);
+    }
+
+    /* ── Local AFK timer (drives auto-pick on this player's screen) ── */
+    function beginQuizTimer() {
+      _startTimer(QUIZ_TIMEOUT_MS, 'Auto-finish quiz in', () => {
+        _autoFinishQuiz();
+      });
+    }
+
+    function beginCharTimer() {
+      _startTimer(CHAR_TIMEOUT_MS, 'Auto-confirm character in', () => {
+        _autoFinishChar();
+      });
+    }
+
+    function _startTimer(durationMs, label, onExpire) {
+      _clearTimer();
+      const startTime = Date.now();
+      const deadline  = startTime + durationMs;
+      const timerEl   = document.getElementById('mp-timer');
+      const labelEl   = document.getElementById('mp-timer-text');
+      const secsEl    = document.getElementById('mp-timer-secs');
+      const barEl     = document.getElementById('mp-timer-bar');
+      if (!timerEl) return;
+
+      timerEl.classList.remove('hidden', 'urgent');
+      labelEl.textContent = label;
+      const tick = () => {
+        const remaining = Math.max(0, deadline - Date.now());
+        const secs = Math.ceil(remaining / 1000);
+        secsEl.textContent = secs;
+        const pct = (remaining / durationMs) * 100;
+        barEl.style.width = pct + '%';
+        if (remaining <= 8000) timerEl.classList.add('urgent');
+        if (remaining <= 0) {
+          _clearTimer();
+          if (onExpire) onExpire();
+        }
+      };
+      tick();
+      activeTimer = setInterval(tick, 250);
+    }
+
+    function _clearTimer() {
+      if (activeTimer) { clearInterval(activeTimer); activeTimer = null; }
+      const timerEl = document.getElementById('mp-timer');
+      if (timerEl) { timerEl.classList.add('hidden'); timerEl.classList.remove('urgent'); }
+    }
+
+    function _autoFinishQuiz() {
+      // Fill remaining questions with first option (val=0 picks first opt's val)
+      while (GameState.currentQuestion < QUIZ.length) {
+        const q = QUIZ[GameState.currentQuestion];
+        if (q && q.opts && q.opts[0]) {
+          GameState.quizAnswers[q.opts[0].val]++;
+        }
+        GameState.currentQuestion++;
+      }
+      if (typeof showCharScreen === 'function') showCharScreen();
+      beginCharTimer();
+    }
+
+    function _autoFinishChar() {
+      // Default character: male / light / first species if not chosen
+      if (!GameState.player.flags) GameState.player.flags = {};
+      if (!GameState.player.flags.gender)   GameState.player.flags.gender   = 'male';
+      if (!GameState.player.flags.skinTone) GameState.player.flags.skinTone = 'light';
+      if (!GameState.selectedSpecies) {
+        const firstSpecies = Object.keys(SPECIES)[0];
+        GameState.selectedSpecies = firstSpecies;
+        if (typeof applySpeciesAndRenderStats === 'function' && GameState.player.class) {
+          applySpeciesAndRenderStats(GameState.player.class, firstSpecies);
+        }
+      }
+      lockInCharacter();
+    }
+
+    /* ── Called when local player clicks "Enter World" ── */
+    function lockInCharacter() {
+      _clearTimer();
+      const character = {
+        class:   GameState.player.class,
+        species: GameState.player.species,
+        flags:   { ...GameState.player.flags },
+        stats:   { ...GameState.player.stats }
+      };
+      const myId = Network.getMyId();
+      assembled[myId] = character;
+      // Broadcast our readiness to everyone
+      Network.send({ type: 'player-ready', peerId: myId, character });
+      // Show waiting room
+      _showWaitingRoom();
+      // Host: check if everyone's in
+      if (Network.isHost()) _checkAllReady();
+    }
+
+    function receivePlayerReady(peerId, character) {
+      assembled[peerId] = character;
+      _refreshWaitingRoom();
+      if (Network.isHost()) _checkAllReady();
+    }
+
+    function markAsAI(peerId) {
+      aiPlayers[peerId] = true;
+      _refreshWaitingRoom();
+      if (Network.isHost()) _checkAllReady();
+    }
+
+    function _checkAllReady() {
+      const players = Network.getPlayers();
+      const everyone = players.every(p => assembled[p.id] || aiPlayers[p.id]);
+      if (everyone) _hostLaunchStory();
+    }
+
+    function _hostForceLaunch() {
+      // Timeout: mark anyone not ready as AI, then launch
+      const players = Network.getPlayers();
+      players.forEach(p => {
+        if (!assembled[p.id]) aiPlayers[p.id] = true;
+      });
+      Network.send({ type: 'player-ai', peerId: 'TIMEOUT_ALL' });
+      _hostLaunchStory();
+    }
+
+    function _hostLaunchStory() {
+      if (assemblyTimer) { clearTimeout(assemblyTimer); assemblyTimer = null; }
+      const players = Network.getPlayers().sort((a,b) => a.slot - b.slot);
+      const party = players.map(p => ({
+        peerId: p.id,
+        slot:   p.slot,
+        name:   p.name,
+        isAI:   !!aiPlayers[p.id],
+        ...(assembled[p.id] || _aiCharacter())
+      }));
+      Network.send({ type: 'start-story', party });
+      applyAssembledParty(party);
+    }
+
+    function _aiCharacter() {
+      // Sensible defaults for AFK/disconnected players: balanced Cleric
+      const cls = 'Cleric';
+      const species = 'Human';
+      const stats = (typeof computeStats === 'function')
+        ? computeStats(cls, species)
+        : { STR: 10, INT: 12, CHA: 14, DEX: 12 };
+      return {
+        class: cls,
+        species: species,
+        flags: { gender: 'male', skinTone: 'light' },
+        stats
+      };
+    }
+
+    /** All players: apply the assembled party (set my char, store party).
+        Only the HOST actually calls startGame() — clients receive the
+        narrative through Phase 2's screen/scene/dialogue sync. This avoids
+        the broadcast loop that would happen if every player ran the story
+        locally. Phase 6 will add per-player dialogue navigation. */
+    function applyAssembledParty(party) {
+      _clearTimer();
+      _hideWaitingRoom();
+      _perPlayerMode = false;
+      // Set MY local character to my slot's data
+      const myId = Network.getMyId();
+      const me = party.find(p => p.peerId === myId);
+      if (me && typeof GameState !== 'undefined') {
+        GameState.player.class   = me.class;
+        GameState.player.species = me.species;
+        GameState.player.flags   = me.flags;
+        GameState.player.stats   = me.stats;
+      }
+      if (typeof GameState !== 'undefined') GameState.multiplayerParty = party;
+      if (Network.isHost()) {
+        if (typeof startGame === 'function') startGame();
+      } else {
+        // Clients become spectators for the shared story (until Phase 6)
+        _showSpectatorBadge();
+      }
+    }
+
+    /* ── Waiting room UI ── */
+    function _showWaitingRoom() {
+      const el = document.getElementById('mp-waiting');
+      if (el) el.classList.remove('hidden');
+      _refreshWaitingRoom();
+    }
+
+    function _hideWaitingRoom() {
+      const el = document.getElementById('mp-waiting');
+      if (el) el.classList.add('hidden');
+    }
+
+    function _refreshWaitingRoom() {
+      const list = document.getElementById('mp-waiting-players');
+      if (!list) return;
+      list.innerHTML = '';
+      const players = Network.isOnline() ? Network.getPlayers() : [];
+      players.forEach(p => {
+        const li = document.createElement('li');
+        const isReady = !!assembled[p.id];
+        const isAI    = !!aiPlayers[p.id];
+        if (isReady) li.classList.add('is-ready');
+        else if (isAI) li.classList.add('is-ai');
+        const status = isReady ? '✓ READY' : (isAI ? '◌ AI' : '… choosing');
+        li.innerHTML = `<span>${p.name}</span><span class="mp-waiting-status">${status}</span>`;
+        list.appendChild(li);
+      });
+    }
+
+    return {
+      beginAssembly, beginQuizTimer, beginCharTimer,
+      lockInCharacter, receivePlayerReady, markAsAI,
+      applyAssembledParty,
+      _refreshWaitingRoom
+    };
+  })();
+
+  /* Disconnect detection — when the Network roster shrinks, mark missing
+     players as AI. Each player runs this listener; only the host's
+     decision matters for assembly, but other clients see the AI tag too. */
+  Network.onPlayers((players) => {
+    if (!_started) return;
+    // Compare against assembled keys — any peerId in assembled but missing from
+    // players list means they disconnected. Mark them AI.
+    // We need a baseline: track previously-known IDs.
+    const known = Phase5._knownIds = Phase5._knownIds || new Set();
+    players.forEach(p => known.add(p.id));
+    known.forEach(id => {
+      const stillHere = players.some(p => p.id === id);
+      if (!stillHere) {
+        Phase5.markAsAI(id);
+        if (Network.isHost()) Network.send({ type: 'player-ai', peerId: id });
+      }
+    });
+  });
 
   function init() {
     // Hook engine functions for broadcast (host) AND apply (client).
@@ -367,7 +690,15 @@ const Multiplayer = (() => {
     Network.onMessage(_applyMessage);
   }
 
-  return { init, startGame, isStarted };
+  /** Public hook: called from main.js btn-enter-world when in multiplayer. */
+  function lockInCharacter() {
+    Phase5.lockInCharacter();
+  }
+
+  /** Are we currently in the per-player setup phase (quiz/charselect)? */
+  function isPerPlayerMode() { return _perPlayerMode; }
+
+  return { init, startGame, isStarted, lockInCharacter, isPerPlayerMode };
 })();
 
 // Self-init — runs after every other script has loaded (this file is last

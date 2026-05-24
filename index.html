@@ -553,6 +553,31 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════════════════════
+       MULTIPLAYER PHASE 5: TIMER + WAITING ROOM
+       Per-player quiz / char-select countdown and
+       "waiting for other players" overlay.
+       ═══════════════════════════════════════════════ -->
+  <div id="mp-timer" class="mp-timer hidden">
+    <div class="mp-timer-label">
+      <span id="mp-timer-text">Auto-choose in</span>
+      <span class="mp-timer-secs" id="mp-timer-secs">30</span>s
+    </div>
+    <div class="mp-timer-bar-track">
+      <div class="mp-timer-bar-fill" id="mp-timer-bar"></div>
+    </div>
+  </div>
+
+  <div id="mp-waiting" class="mp-waiting hidden">
+    <div class="mp-waiting-backdrop"></div>
+    <div class="mp-waiting-wrap">
+      <div class="mp-waiting-rune">⧖</div>
+      <div class="mp-waiting-title">Waiting on the Party</div>
+      <div class="mp-waiting-subtitle">Your choice is locked in. Awaiting other adventurers…</div>
+      <ul class="mp-waiting-players" id="mp-waiting-players"></ul>
+    </div>
+  </div>
+
   <!-- PeerJS library — free WebRTC signaling for multiplayer -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 

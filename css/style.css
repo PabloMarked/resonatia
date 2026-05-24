@@ -2914,4 +2914,137 @@ ol.manual-list li::before {
   background: rgba(140, 80, 60, 0.15);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 5 — TIMER OVERLAY (per-player auto-pick countdown)
+   ═══════════════════════════════════════════════════════════════ */
+.mp-timer {
+  position: fixed;
+  top: 56px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 8500;
+  min-width: 280px;
+  padding: 0.6rem 1rem;
+  background: rgba(8, 6, 14, 0.92);
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 6px 22px rgba(0,0,0,0.6);
+  font-family: 'Cinzel', serif;
+}
+.mp-timer-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 0.4rem;
+}
+.mp-timer-secs {
+  font-size: 1.1rem;
+  color: var(--gold);
+  font-weight: bold;
+  letter-spacing: 0;
+  margin-right: 0.15em;
+}
+.mp-timer-bar-track {
+  height: 4px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(201,168,76,0.18);
+  overflow: hidden;
+}
+.mp-timer-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--gold), #d4af3c);
+  transition: width 0.5s linear, background 0.3s;
+}
+.mp-timer.urgent .mp-timer-bar-fill {
+  background: linear-gradient(90deg, #c0392b, #e74c3c);
+}
+.mp-timer.urgent .mp-timer-secs {
+  color: #e74c3c;
+  animation: pulse 0.7s infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 5 — WAITING ROOM
+   Shown after a player locks in their choice and is waiting for others.
+   ═══════════════════════════════════════════════════════════════ */
+.mp-waiting {
+  position: fixed;
+  inset: 0;
+  z-index: 8800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mp-waiting-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2,4,10,0.78);
+  backdrop-filter: blur(6px);
+}
+.mp-waiting-wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  width: 88%;
+  padding: 2.5rem 2rem 2rem;
+  text-align: center;
+  background: rgba(8, 6, 14, 0.95);
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.85);
+}
+.mp-waiting-rune {
+  font-size: 3rem;
+  color: var(--gold);
+  text-shadow: 0 0 18px rgba(201,168,76,0.4);
+  margin-bottom: 0.6rem;
+  animation: pulse 2s infinite;
+}
+.mp-waiting-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: var(--gold-light);
+  margin-bottom: 0.6rem;
+  padding-left: 0.4em;
+}
+.mp-waiting-subtitle {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+.mp-waiting-players {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.mp-waiting-players li {
+  padding: 0.55rem 0.9rem;
+  background: rgba(0,0,0,0.35);
+  border-left: 3px solid var(--gold-dim);
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-bright);
+}
+.mp-waiting-players li.is-ready {
+  border-left-color: #8fd0a0;
+  color: #8fd0a0;
+}
+.mp-waiting-players li.is-ai {
+  border-left-color: #d09f8f;
+  color: #d09f8f;
+  font-style: italic;
+}
+
 .hidden { display: none !important; }

@@ -238,7 +238,7 @@ const Manual = (() => {
   return { open, close, isOpen };
 })();
 
-// Character screen → Game
+// Character screen → Game (or — in multiplayer — lock in character for assembly)
 document.getElementById('btn-enter-world').addEventListener('click', () => {
   if (!GameState.selectedSpecies) {
     alert('Please choose your species before entering Jurnaheim.');
@@ -252,7 +252,13 @@ document.getElementById('btn-enter-world').addEventListener('click', () => {
     alert('Please choose your appearance before entering Jurnaheim.');
     return;
   }
-  startGame();
+  // Multiplayer: send our character to the party assembler and wait for others.
+  // Single-player: launch the adventure normally.
+  if (typeof Multiplayer !== 'undefined' && Multiplayer.isPerPlayerMode()) {
+    Multiplayer.lockInCharacter();
+  } else {
+    startGame();
+  }
 });
 
 // Ending → Title (restart)

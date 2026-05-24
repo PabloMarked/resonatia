@@ -460,6 +460,7 @@ const Network = (() => {
   function isOnline()    { return !!peer && !peer.destroyed; }
   function getMySlot()   { return mySlot; }
   function getMyName()   { return myName; }
+  function getMyId()     { return myId; }
   function getPlayers()  { return [...players]; }
   function getRoomCode() { return roomCode; }
 
@@ -471,7 +472,7 @@ const Network = (() => {
   return {
     host, join, send, disconnect,
     isHost, isClient, isOnline, isPublic,
-    getMySlot, getMyName, getPlayers, getRoomCode,
+    getMySlot, getMyName, getMyId, getPlayers, getRoomCode,
     listPublicRooms,
     onMessage, onPlayers, onStatus
   };
