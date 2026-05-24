@@ -438,9 +438,17 @@ const Lobby = (() => {
   });
 
   btnStartCoop.addEventListener('click', () => {
-    // Phase 1 placeholder — actual co-op start will be wired in phase 2/3
-    // when state sync + multiplayer combat are in place.
-    _setStatus('Co-op start is not yet wired (Phase 2 will handle this).');
+    // Phase 2: host kicks off the adventure. Clients receive the start-game
+    // message via Multiplayer's network hook and jump into spectator mode.
+    if (!Network.isHost()) {
+      _setStatus('Only the host can start the adventure.');
+      return;
+    }
+    if (typeof Multiplayer === 'undefined') {
+      _setStatus('Multiplayer module not loaded.');
+      return;
+    }
+    Multiplayer.startGame();
   });
 
   /* ── Subscribe to Network events ── */
@@ -460,5 +468,8 @@ document.getElementById('btn-multiplayer').addEventListener('click', () => {
    ────────────────────────────────────────────── */
 BGCanvas.init();
 AudioManager.init();
+// Multiplayer.init() is called from the bottom of multiplayer.js itself,
+// after this script (and every other dependency) has fully loaded —
+// otherwise its monkey-patches on updateScore() would be a no-op.
 // Title music starts on the player's first click/keypress (browser autoplay policy
 // prevents audio before any user interaction). See AudioManager._onFirstInteraction.

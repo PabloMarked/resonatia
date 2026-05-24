@@ -499,7 +499,8 @@
   <!-- PeerJS library — free WebRTC signaling for multiplayer -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
-  <!-- JS load order matters: assets → engine → audio → network → battle → story → main -->
+  <!-- JS load order: assets → engine → audio → network → battle → story → main → multiplayer
+       (multiplayer must load LAST — it monkey-patches functions defined in the others) -->
   <script src="js/assets.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/audio.js"></script>
@@ -507,6 +508,7 @@
   <script src="js/battle.js"></script>
   <script src="js/story.js"></script>
   <script src="js/main.js"></script>
+  <script src="js/multiplayer.js"></script>
 
 </body>
 </html>
