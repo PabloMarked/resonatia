@@ -231,6 +231,9 @@ const Battle = (() => {
         _checkBossArmor(combatant);
         _checkBossEnrage(combatant);
       }
+      // Multiplayer hook: fire an event after damage so the host can broadcast
+      // updated HP/SP snapshots to spectators. No-op when no listener registered.
+      document.dispatchEvent(new CustomEvent('battle-update'));
       return actual;
     },
 
@@ -1025,6 +1028,11 @@ const Battle = (() => {
       const current = state.turnOrder[state.turnIndex];
       BattleUI.setActiveTurn(current);
 
+      // Multiplayer hook: broadcast turn change BEFORE handing off to the
+      // turn handler — this way spectators see the new active combatant
+      // highlight even before any animation runs on the host.
+      document.dispatchEvent(new CustomEvent('battle-update'));
+
       if (current.isPlayer)    { _playerTurn(current); }
       else if (current.isAlly) { _allyTurn(current);  }
       else                     { _enemyTurn(current); }
@@ -1562,6 +1570,9 @@ const Battle = (() => {
         state = null;
       }, 1800);
     }
+    // Multiplayer hook: notify spectators that the battle is over so they
+    // can drop spectator mode and follow the host back to the story screen.
+    document.dispatchEvent(new CustomEvent('battle-end', { detail: { victory } }));
   }
 
   /* ──────────────────────────────────────────────
@@ -1662,6 +1673,7 @@ const Battle = (() => {
       turnIndex:  -1,
       round:      1,
       buffs:      {},
+      _background: config.background || 'cultist_room', // remembered for multiplayer sync
       _keyHandler: null,
       onWin:  config.onWin  || (() => {}),
       onLose: config.onLose || (() => {})
@@ -1757,6 +1769,145 @@ const Battle = (() => {
     }
   }
 
-  return { start };
+  /* ──────────────────────────────────────────────
+     MULTIPLAYER SPECTATOR HOOKS
+     The host runs start() normally; clients call startAsSpectator()
+     instead so the field is built but TurnMgr.begin never fires
+     (no autonomous turns). Then host broadcasts snapshots via
+     snapshot() and clients render them via applySnapshot().
+  ────────────────────────────────────────────── */
+  function startAsSpectator(config) {
+    if (state?._keyHandler) {
+      document.removeEventListener('keydown', state._keyHandler);
+    }
+    const cls      = GameState.player.class;
+    const skinTone = config.skinTone || GameState.player.flags.skinTone || 'light';
+    const gender   = config.gender   || GameState.player.flags.gender   || 'male';
+
+    const player = CharState.build(cls, true, false, skinTone, gender);
+    player.displayName = cls;
+
+    const allies = [];
+    (config.allies || []).forEach(spec => {
+      allies.push(CharState.build(spec.key, false, true, null, null));
+    });
+
+    const enemies = [];
+    (config.enemies || []).forEach(spec => {
+      const count = spec.count || 1;
+      for (let i = 0; i < count; i++) {
+        const e = CharState.build(spec.key, false, false, null, null);
+        if (count > 1) e.displayName = `${ENEMY_DATA[spec.key]?.displayName || spec.key} ${i + 1}`;
+        enemies.push(e);
+      }
+    });
+
+    state = {
+      party:      [player, ...allies],
+      enemies,
+      turnOrder:  [],
+      turnIndex:  -1,
+      round:      1,
+      buffs:      {},
+      _spectator: true,
+      _keyHandler: null,
+      onWin:  () => {},
+      onLose: () => {}
+    };
+    state.party.forEach(  (c, i) => c.uid = `p${i}`);
+    state.enemies.forEach((c, i) => c.uid = `e${i}`);
+
+    // Pre-build turn order so applySnapshot can highlight the active combatant
+    // even though we never call TurnMgr.begin().
+    const order = [];
+    const maxLen = Math.max(state.party.length, state.enemies.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (i < state.party.length)   order.push(state.party[i]);
+      if (i < state.enemies.length) order.push(state.enemies[i]);
+    }
+    state.turnOrder = order;
+
+    Screen.show('screen-battle');
+    BattleUI.setBackground(config.background || 'cultist_room');
+    BattleUI._el('btl-action-bar').classList.add('hidden'); // spectator: no input
+    const tc = document.getElementById('btl-trail-canvas');
+    if (tc) { tc.width = window.innerWidth; tc.height = window.innerHeight; }
+    TrailCanvas._canvas = null;
+    BattleUI.renderField();
+    BattleUI.setRound(1);
+    BattleUI.log('');
+    TurnIndicator.hide();
+    if (typeof CharSprite !== 'undefined') CharSprite.hide();
+  }
+
+  /** Serialize the mutable battle state for network broadcast. */
+  function snapshot() {
+    if (!state) return null;
+    const serialize = (c) => ({
+      uid: c.uid,
+      hp: c.hp, maxHp: c.maxHp,
+      stamina: c.stamina, maxStamina: c.maxStamina,
+      alive: c.alive,
+      defending: c.defending,
+      dazeNextTurn: c.dazeNextTurn,
+      // Ashrag-specific state (undefined on non-boss combatants — fine)
+      armorStage: c.armorStage,
+      armorFlatOverride: c.armorFlatOverride,
+      armorACBonusOverride: c.armorACBonusOverride,
+      enrageStage: c.enrageStage,
+      enrageDmgMult: c.enrageDmgMult,
+      canUseSkills: c.canUseSkills,
+      hitBonus: c.hitBonus,
+      awakened: c.awakened
+    });
+    return {
+      round:     state.round,
+      turnIndex: state.turnIndex,
+      party:     state.party.map(serialize),
+      enemies:   state.enemies.map(serialize)
+    };
+  }
+
+  /** Apply a received snapshot — used by spectator clients. */
+  function applySnapshot(snap) {
+    if (!state || !snap) return;
+    const apply = (src, dst) => {
+      Object.keys(src).forEach(k => {
+        if (k === 'uid') return;
+        if (src[k] !== undefined) dst[k] = src[k];
+      });
+    };
+    (snap.party || []).forEach(p => {
+      const local = state.party.find(c => c.uid === p.uid);
+      if (local) apply(p, local);
+    });
+    (snap.enemies || []).forEach(e => {
+      const local = state.enemies.find(c => c.uid === e.uid);
+      if (local) apply(e, local);
+    });
+    state.round     = snap.round;
+    state.turnIndex = snap.turnIndex;
+    BattleUI.setRound(state.round);
+    [...state.party, ...state.enemies].forEach(c => {
+      BattleUI.updateBars(c);
+      CharState.autoSprite(c);
+    });
+    const current = state.turnOrder[state.turnIndex];
+    if (current) BattleUI.setActiveTurn(current);
+  }
+
+  /** Read-only access to the current battle config (so multiplayer can serialize it). */
+  function getActiveConfig() {
+    if (!state) return null;
+    return {
+      background: state._background || 'cultist_room',
+      enemies: state.enemies.map(e => ({ key: e.key })),
+      allies:  state.party.slice(1).map(a => ({ key: a.key }))
+      // intro/preBattle/onWin/onLose intentionally omitted — clients
+      // receive intro via Phase 2 dialogue sync; outcomes are host-only.
+    };
+  }
+
+  return { start, startAsSpectator, snapshot, applySnapshot, getActiveConfig };
 
 })();

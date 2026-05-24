@@ -48,11 +48,22 @@ const Multiplayer = (() => {
 
   /* ── Monkey-patch engine functions to broadcast on host ── */
   function _installHostHooks() {
-    // SCREEN: broadcast every screen transition + a fresh GameState snapshot
+    // SCREEN: broadcast every screen transition + a fresh GameState snapshot.
+    // SPECIAL CASE: when entering screen-battle, also include the battle config
+    // so clients can spawn the same combatants in spectator mode.
     const _origScreenShow = Screen.show;
     Screen.show = function(id) {
       _origScreenShow(id);
-      _hostSend({ type: 'screen', id, gameState: _snapshotGameState() });
+      if (id === 'screen-battle' && typeof Battle !== 'undefined') {
+        const battleConfig = Battle.getActiveConfig?.();
+        _hostSend({
+          type: 'battle-start',
+          id, gameState: _snapshotGameState(),
+          config: battleConfig
+        });
+      } else {
+        _hostSend({ type: 'screen', id, gameState: _snapshotGameState() });
+      }
     };
 
     // SCENE: broadcast scene/background changes
@@ -105,6 +116,44 @@ const Multiplayer = (() => {
         // clicks suppressed by _installClientLocks below.
         _hostSend({ type: 'dialogue-click' });
       });
+    }
+
+    /* ── COMBAT SYNC (host side) ─────────────────────────────
+       Listen for the battle-update events dispatched by battle.js
+       and broadcast snapshots to spectators. Throttled: at most
+       one broadcast per ~80 ms so rapid mid-animation updates
+       don't flood the network. */
+    let _lastSnapTime = 0;
+    document.addEventListener('battle-update', () => {
+      if (!Network.isHost() || !Network.isOnline()) return;
+      const now = Date.now();
+      if (now - _lastSnapTime < 80) return;
+      _lastSnapTime = now;
+      const snap = Battle.snapshot?.();
+      if (snap) _hostSend({ type: 'battle-state', snap });
+    });
+
+    document.addEventListener('battle-end', (e) => {
+      if (!Network.isHost() || !Network.isOnline()) return;
+      _hostSend({ type: 'battle-end', victory: !!e.detail?.victory });
+    });
+
+    // Wrap BattleUI.log so spectator log scrolls in lockstep with the host
+    if (typeof BattleUI !== 'undefined' && BattleUI.log) {
+      const _origLog = BattleUI.log;
+      BattleUI.log = function(text, cls) {
+        _origLog.call(BattleUI, text, cls);
+        _hostSend({ type: 'battle-log', text, cls: cls || '' });
+      };
+    }
+
+    // Wrap ActionTextFX.show so spectator sees the same banners
+    if (typeof ActionTextFX !== 'undefined' && ActionTextFX.show) {
+      const _origFx = ActionTextFX.show;
+      ActionTextFX.show = function(text, type) {
+        _origFx.call(ActionTextFX, text, type);
+        _hostSend({ type: 'battle-fx', text, kind: type || '' });
+      };
     }
   }
 
@@ -183,6 +232,38 @@ const Multiplayer = (() => {
             const hudScore = document.getElementById('hud-score');
             if (hudScore) hudScore.textContent = `Score: ${msg.score}`;
           }
+          break;
+
+        /* ── COMBAT (spectator) ──────────────────────────── */
+        case 'battle-start':
+          if (msg.gameState) _restoreGameState(msg.gameState);
+          if (msg.config && Battle?.startAsSpectator) {
+            Battle.startAsSpectator(msg.config);
+          } else {
+            // Fallback if config wasn't sent — at least switch screens
+            Screen.show(msg.id || 'screen-battle');
+          }
+          break;
+
+        case 'battle-state':
+          if (Battle?.applySnapshot) Battle.applySnapshot(msg.snap);
+          break;
+
+        case 'battle-log':
+          if (typeof BattleUI !== 'undefined' && BattleUI.log) {
+            BattleUI.log(msg.text, msg.cls);
+          }
+          break;
+
+        case 'battle-fx':
+          if (typeof ActionTextFX !== 'undefined' && ActionTextFX.show) {
+            ActionTextFX.show(msg.text, msg.kind);
+          }
+          break;
+
+        case 'battle-end':
+          // Host's next Screen.show (back to screen-game) will arrive via
+          // the regular 'screen' message and switch us out of spectator UI.
           break;
       }
     } catch (err) {
