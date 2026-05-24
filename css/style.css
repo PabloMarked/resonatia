@@ -2463,3 +2463,250 @@ ol.manual-list li::before {
   color: #fff;
   box-shadow: 0 0 25px rgba(180, 40, 50, 0.4);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MULTIPLAYER LOBBY MODAL
+   Create or join a 4-letter room for co-op play.
+   Sits below the Game Over modal in z-index since it's a
+   pre-game UI, not a mid-game interrupt.
+   ═══════════════════════════════════════════════════════════════ */
+.btn-multiplayer {
+  font-family: 'Cinzel', serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  padding: 0.7rem 1.6rem;
+  margin-top: 0.6rem;
+  background: rgba(20, 30, 50, 0.6);
+  color: #b8c8e0;
+  border: 1px solid rgba(80, 110, 160, 0.45);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.btn-multiplayer:hover {
+  background: rgba(40, 60, 100, 0.75);
+  border-color: rgba(140, 170, 220, 0.7);
+  color: #fff;
+  box-shadow: 0 0 18px rgba(80, 110, 160, 0.35);
+}
+
+.lobby-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.lobby-modal.open { display: flex; }
+
+.lobby-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 4, 10, 0.88);
+}
+
+.lobby-wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 500px;
+  width: 88%;
+  padding: 2.5rem 2.2rem 2rem;
+  background: rgba(8, 6, 14, 0.96);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.85);
+  animation: lobbyRise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes lobbyRise {
+  0%   { transform: translateY(15px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+.lobby-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.8rem;
+  background: none;
+  border: none;
+  color: var(--gold-dim);
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  transition: color 0.2s;
+}
+.lobby-close:hover { color: var(--gold-light); }
+
+.lobby-wrap h2 {
+  font-family: 'Cinzel', serif;
+  text-align: center;
+  color: var(--gold-light);
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  font-size: 1.05rem;
+  margin: 0 0 0.8rem;
+  padding-left: 0.35em;
+}
+
+.lobby-divider {
+  width: 60%;
+  height: 1px;
+  margin: 0 auto 1.5rem;
+  background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+}
+
+.lobby-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.lobby-panel.hidden { display: none; }
+
+.lobby-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: -0.5rem;
+}
+
+.lobby-panel input {
+  font-family: 'Cinzel', serif;
+  font-size: 1rem;
+  padding: 0.8rem 1rem;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border);
+  color: var(--text-bright);
+  letter-spacing: 0.12em;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.lobby-panel input:focus {
+  border-color: var(--gold);
+  background: rgba(0, 0, 0, 0.6);
+}
+#lobby-code {
+  font-size: 1.5rem;
+  letter-spacing: 0.6em;
+  text-transform: uppercase;
+  padding-left: 1.5rem; /* visually balance the letter-spacing */
+}
+
+.lobby-buttons {
+  display: flex;
+  gap: 0.7rem;
+}
+.lobby-buttons button { flex: 1; }
+
+.lobby-btn-primary,
+.lobby-btn-secondary {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.lobby-btn-primary {
+  background: rgba(60, 50, 30, 0.6);
+  color: var(--gold-light);
+}
+.lobby-btn-primary:hover {
+  background: rgba(100, 80, 40, 0.8);
+  border-color: var(--gold);
+  box-shadow: 0 0 14px rgba(201, 168, 76, 0.35);
+}
+.lobby-btn-secondary {
+  background: rgba(20, 20, 30, 0.55);
+  color: var(--text-dim);
+}
+.lobby-btn-secondary:hover {
+  background: rgba(40, 40, 60, 0.7);
+  color: var(--text-bright);
+}
+
+.lobby-hint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ── Room panel ── */
+.lobby-roomcode-wrap {
+  text-align: center;
+  padding: 1.1rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--gold-dim);
+}
+.lobby-roomcode-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 0.4rem;
+}
+.lobby-roomcode {
+  font-family: 'Cinzel', serif;
+  font-size: 2.2rem;
+  letter-spacing: 0.55em;
+  color: var(--gold);
+  text-shadow: 0 0 18px rgba(201, 168, 76, 0.4);
+  padding-left: 0.5em;
+}
+.lobby-roomcode-hint {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-top: 0.4rem;
+  letter-spacing: 0.08em;
+}
+
+.lobby-players {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.lobby-players li {
+  padding: 0.7rem 0.9rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-left: 3px solid var(--gold-dim);
+  font-family: 'Cinzel', serif;
+  color: var(--text-bright);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+.lobby-players li.is-host {
+  border-left-color: var(--gold);
+  background: rgba(60, 45, 15, 0.3);
+}
+.lobby-players li .slot-badge {
+  font-size: 0.66rem;
+  color: var(--gold-dim);
+  letter-spacing: 0.25em;
+}
+
+.lobby-status {
+  text-align: center;
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.82rem;
+  min-height: 1.4rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(201, 168, 76, 0.15);
+}
+.lobby-status:empty { display: none; }
+
+.hidden { display: none !important; }

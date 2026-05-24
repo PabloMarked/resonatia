@@ -304,6 +304,158 @@ const GameOver = (() => {
 })();
 
 /* ──────────────────────────────────────────────
+   MULTIPLAYER LOBBY  (Phase 1 — connection foundation)
+   Opens from the title screen "Play with Friends" button.
+   Hands off connection to the Network module — no game-state
+   sync yet (that's phase 2).
+   ────────────────────────────────────────────── */
+const Lobby = (() => {
+  const modal       = document.getElementById('lobby-modal');
+  const backdrop    = document.getElementById('lobby-backdrop');
+  const closeBtn    = document.getElementById('btn-lobby-close');
+
+  const choicePanel = document.getElementById('lobby-choice');
+  const joinPanel   = document.getElementById('lobby-join');
+  const roomPanel   = document.getElementById('lobby-room');
+
+  const nameInput   = document.getElementById('lobby-name');
+  const codeInput   = document.getElementById('lobby-code');
+  const playersList = document.getElementById('lobby-players');
+  const roomCodeEl  = document.getElementById('lobby-roomcode');
+  const statusEl    = document.getElementById('lobby-status');
+
+  const btnHost     = document.getElementById('btn-host-room');
+  const btnJoin     = document.getElementById('btn-join-room');
+  const btnConnect  = document.getElementById('btn-connect');
+  const btnBack     = document.getElementById('btn-back');
+  const btnLeave    = document.getElementById('btn-leave');
+  const btnStartCoop = document.getElementById('btn-start-coop');
+
+  function _showPanel(panelEl) {
+    [choicePanel, joinPanel, roomPanel].forEach(p => p.classList.add('hidden'));
+    panelEl.classList.remove('hidden');
+  }
+
+  function _setStatus(msg) {
+    statusEl.textContent = msg || '';
+  }
+
+  function open() {
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    // Remember the player's name across sessions for convenience.
+    nameInput.value = localStorage.getItem('resonatia-name') || '';
+    codeInput.value = '';
+    _setStatus('');
+    // If already in a room (re-opened lobby), jump back to room panel.
+    if (Network.isOnline()) {
+      roomCodeEl.textContent = Network.getRoomCode() || '—';
+      _refreshPlayers(Network.getPlayers());
+      _showPanel(roomPanel);
+    } else {
+      _showPanel(choicePanel);
+    }
+  }
+
+  function close() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function _refreshPlayers(players) {
+    playersList.innerHTML = '';
+    players.forEach(p => {
+      const li = document.createElement('li');
+      if (p.isHost) li.classList.add('is-host');
+      const crown = p.isHost ? ' 👑' : '';
+      li.innerHTML = `<span>${p.name}${crown}</span><span class="slot-badge">SLOT ${p.slot + 1}</span>`;
+      playersList.appendChild(li);
+    });
+
+    // Show "Start Adventure" only to the host AND only if there are 2+ players.
+    const showStart = Network.isHost() && players.length >= 2;
+    btnStartCoop.classList.toggle('hidden', !showStart);
+  }
+
+  /* ── Wire buttons ── */
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+
+  btnHost.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) { _setStatus('Enter your name first.'); nameInput.focus(); return; }
+    localStorage.setItem('resonatia-name', name);
+    btnHost.disabled = true;
+    try {
+      const code = await Network.host(name);
+      roomCodeEl.textContent = code;
+      _showPanel(roomPanel);
+    } catch (e) {
+      _setStatus('Could not create room: ' + (e.message || e));
+    } finally {
+      btnHost.disabled = false;
+    }
+  });
+
+  btnJoin.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) { _setStatus('Enter your name first.'); nameInput.focus(); return; }
+    localStorage.setItem('resonatia-name', name);
+    _setStatus('');
+    _showPanel(joinPanel);
+    setTimeout(() => codeInput.focus(), 50);
+  });
+
+  btnConnect.addEventListener('click', async () => {
+    const code = codeInput.value.trim().toUpperCase();
+    if (code.length !== 4) { _setStatus('Room codes are 4 letters.'); return; }
+    btnConnect.disabled = true;
+    try {
+      await Network.join(code, nameInput.value.trim());
+      roomCodeEl.textContent = code;
+      _showPanel(roomPanel);
+    } catch (e) {
+      _setStatus(e.message || 'Could not join.');
+    } finally {
+      btnConnect.disabled = false;
+    }
+  });
+
+  // Enter key in code field = Connect
+  codeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') btnConnect.click();
+  });
+
+  btnBack.addEventListener('click', () => {
+    _setStatus('');
+    _showPanel(choicePanel);
+  });
+
+  btnLeave.addEventListener('click', () => {
+    Network.disconnect();
+    _setStatus('Left the room.');
+    _showPanel(choicePanel);
+  });
+
+  btnStartCoop.addEventListener('click', () => {
+    // Phase 1 placeholder — actual co-op start will be wired in phase 2/3
+    // when state sync + multiplayer combat are in place.
+    _setStatus('Co-op start is not yet wired (Phase 2 will handle this).');
+  });
+
+  /* ── Subscribe to Network events ── */
+  Network.onPlayers(_refreshPlayers);
+  Network.onStatus((s) => { _setStatus(s.message); });
+
+  return { open, close };
+})();
+
+// Title screen → Lobby
+document.getElementById('btn-multiplayer').addEventListener('click', () => {
+  Lobby.open();
+});
+
+/* ──────────────────────────────────────────────
    BOOT
    ────────────────────────────────────────────── */
 BGCanvas.init();

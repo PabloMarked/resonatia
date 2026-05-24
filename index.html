@@ -36,6 +36,7 @@
       <div class="title-sub">Where the Winds of Elmenstria Carry Fate</div>
       <div class="title-divider"><span class="title-divider-gem">⬥</span></div>
       <button class="btn-start" id="btn-begin">Begin Your Journey</button>
+      <button class="btn-multiplayer" id="btn-multiplayer">⚔ Play with Friends</button>
       <button class="btn-manual-open" id="btn-how-to-play">◆ How to Play ◆</button>
     </div>
     <div class="title-warning">◆ A tale of dice and destiny ◆</div>
@@ -445,10 +446,64 @@
     </div>
   </div>
 
-  <!-- JS load order matters: assets → engine → audio → battle → story → main -->
+  <!-- ═══════════════════════════════════════════════
+       MULTIPLAYER LOBBY MODAL
+       Create or join a 4-letter room code to play co-op.
+       ═══════════════════════════════════════════════ -->
+  <div id="lobby-modal" class="lobby-modal" aria-hidden="true">
+    <div class="lobby-backdrop" id="lobby-backdrop"></div>
+    <div class="lobby-wrap" role="dialog" aria-modal="true" aria-labelledby="lobby-title">
+      <button class="lobby-close" id="btn-lobby-close" aria-label="Close lobby">&#10005;</button>
+      <h2 id="lobby-title">Play with Friends</h2>
+      <div class="lobby-divider"></div>
+
+      <!-- Panel 1: Choose host or join -->
+      <div class="lobby-panel" id="lobby-choice">
+        <label class="lobby-label">Your Name</label>
+        <input type="text" id="lobby-name" placeholder="Adventurer" maxlength="20" />
+        <div class="lobby-buttons">
+          <button id="btn-host-room" class="lobby-btn-primary">Create Room</button>
+          <button id="btn-join-room" class="lobby-btn-primary">Join Room</button>
+        </div>
+        <p class="lobby-hint">Up to 4 players can join a room. The creator becomes host.</p>
+      </div>
+
+      <!-- Panel 2: Enter room code -->
+      <div class="lobby-panel hidden" id="lobby-join">
+        <label class="lobby-label">Room Code</label>
+        <input type="text" id="lobby-code" placeholder="XXXX" maxlength="4" />
+        <div class="lobby-buttons">
+          <button id="btn-back" class="lobby-btn-secondary">&larr; Back</button>
+          <button id="btn-connect" class="lobby-btn-primary">Connect</button>
+        </div>
+      </div>
+
+      <!-- Panel 3: In the room -->
+      <div class="lobby-panel hidden" id="lobby-room">
+        <div class="lobby-roomcode-wrap">
+          <div class="lobby-roomcode-label">Room Code</div>
+          <div class="lobby-roomcode" id="lobby-roomcode">&mdash;</div>
+          <div class="lobby-roomcode-hint">Share this with your party</div>
+        </div>
+        <ul class="lobby-players" id="lobby-players"></ul>
+        <div class="lobby-buttons">
+          <button id="btn-leave" class="lobby-btn-secondary">Leave Room</button>
+          <button id="btn-start-coop" class="lobby-btn-primary hidden">Start Adventure</button>
+        </div>
+      </div>
+
+      <div class="lobby-status" id="lobby-status"></div>
+    </div>
+  </div>
+
+  <!-- PeerJS library — free WebRTC signaling for multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <!-- JS load order matters: assets → engine → audio → network → battle → story → main -->
   <script src="js/assets.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/audio.js"></script>
+  <script src="js/network.js"></script>
   <script src="js/battle.js"></script>
   <script src="js/story.js"></script>
   <script src="js/main.js"></script>
