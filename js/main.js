@@ -413,8 +413,10 @@ const Lobby = (() => {
       li.innerHTML = `<span>${p.name}${crown}</span><span class="slot-badge">SLOT ${p.slot + 1}</span>`;
       playersList.appendChild(li);
     });
-    // Host sees "Start Adventure" once at least one other player is present.
-    const showStart = Network.isHost() && players.length >= 2;
+    // Host sees "Start Adventure" as soon as the room exists (min 1 = just
+    // the host themselves). The max is 4, enforced server-side in network.js
+    // by rejecting the 5th joiner.
+    const showStart = Network.isHost() && players.length >= 1;
     btnStartCoop.classList.toggle('hidden', !showStart);
   }
 

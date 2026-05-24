@@ -47,10 +47,15 @@ const Network = (() => {
   let myName      = 'Player';
   let mySlot      = -1;       // 0–3 party slot
 
-  /* Event hooks — wired by main.js / Lobby module */
-  let _onMsg     = () => {};
-  let _onPlayers = () => {};
-  let _onStatus  = () => {};
+  /* Event hooks — multi-listener so Lobby AND Multiplayer can both
+     subscribe to the same channel without clobbering each other. */
+  const _msgListeners     = [];
+  const _playersListeners = [];
+  const _statusListeners  = [];
+
+  function _emit(listeners, ...args) {
+    listeners.forEach(fn => { try { fn(...args); } catch (e) { console.error(e); } });
+  }
 
   /* ── Room code helpers ─────────────────────────────────── */
   const ROOM_CODE_LENGTH = 4;
@@ -100,7 +105,7 @@ const Network = (() => {
       roomCode = _makeRoomCode();
       const peerId = _peerIdFromCode(roomCode, isPublicRoom);
 
-      _onStatus({ state: 'connecting', message: 'Creating room…' });
+      _emit(_statusListeners, { state: 'connecting', message: 'Creating room…' });
 
       peer = new Peer(peerId, { debug: 1 });
 
@@ -108,8 +113,8 @@ const Network = (() => {
         myId    = id;
         mySlot  = 0;
         players = [{ id: myId, name: myName, slot: 0, isHost: true }];
-        _onPlayers(players);
-        _onStatus({
+        _emit(_playersListeners, players);
+        _emit(_statusListeners, {
           state: 'hosting',
           message: `Room ${roomCode} ready — waiting for players…`
         });
@@ -128,7 +133,7 @@ const Network = (() => {
           host(name, opts).then(resolve).catch(reject);
           return;
         }
-        _onStatus({ state: 'error', message: err.message || String(err) });
+        _emit(_statusListeners, { state: 'error', message: err.message || String(err) });
         reject(err);
       });
     });
@@ -162,14 +167,14 @@ const Network = (() => {
 
         try { conn.send({ type: 'welcome', slot, players }); } catch (e) {}
         _broadcast({ type: 'roster', players });
-        _onPlayers(players);
-        _onStatus({
+        _emit(_playersListeners, players);
+        _emit(_statusListeners, {
           state:   'hosting',
           message: `${newPlayer.name} joined — ${players.length}/4 in party`
         });
 
         // From here on, forward game messages to the app layer.
-        conn.on('data', (msg) => _onMsg(msg, conn.peer));
+        conn.on('data', (msg) => _emit(_msgListeners, msg, conn.peer));
       };
       conn.on('data', onHello);
     });
@@ -179,9 +184,9 @@ const Network = (() => {
       const leaver = players.find(p => p.id === conn.peer);
       players = players.filter(p => p.id !== conn.peer);
       _broadcast({ type: 'roster', players });
-      _onPlayers(players);
+      _emit(_playersListeners, players);
       if (leaver) {
-        _onStatus({ state: 'hosting', message: `${leaver.name} left the party.` });
+        _emit(_statusListeners, { state: 'hosting', message: `${leaver.name} left the party.` });
       }
     });
   }
@@ -203,7 +208,7 @@ const Network = (() => {
   function _joinAttempt(code, publicMode) {
     return new Promise((resolve, reject) => {
       const targetPeerId = _peerIdFromCode(code, publicMode);
-      _onStatus({
+      _emit(_statusListeners, {
         state: 'connecting',
         message: `Connecting to room ${code}…`
       });
@@ -228,26 +233,29 @@ const Network = (() => {
               mySlot   = data.slot;
               players  = data.players || [];
               roomCode = code;
-              _onPlayers(players);
-              _onStatus({ state: 'connected', message: `Joined room ${code}!` });
+              // Remember whether THIS room is public or private — driven by
+              // which peer-ID format successfully connected (publicMode flag).
+              isPublicRoom = publicMode;
+              _emit(_playersListeners, players);
+              _emit(_statusListeners, { state: 'connected', message: `Joined room ${code}!` });
               resolve();
               break;
             case 'reject':
-              _onStatus({ state: 'error', message: data.reason || 'Connection refused.' });
+              _emit(_statusListeners, { state: 'error', message: data.reason || 'Connection refused.' });
               try { peer.destroy(); } catch (e) {}
               reject(new Error(data.reason || 'Connection refused.'));
               break;
             case 'roster':
               players = data.players || [];
-              _onPlayers(players);
+              _emit(_playersListeners, players);
               break;
             default:
-              _onMsg(data, conn.peer);
+              _emit(_msgListeners, data, conn.peer);
           }
         });
 
         conn.on('close', () => {
-          _onStatus({ state: 'disconnected', message: 'Lost connection to host.' });
+          _emit(_statusListeners, { state: 'disconnected', message: 'Lost connection to host.' });
         });
       });
 
@@ -261,7 +269,7 @@ const Network = (() => {
         const msg = err.type === 'peer-unavailable'
           ? `No room found with code ${code}.`
           : (err.message || String(err));
-        _onStatus({ state: 'error', message: msg });
+        _emit(_statusListeners, { state: 'error', message: msg });
         reject(new Error(msg));
       });
     });
@@ -449,7 +457,7 @@ const Network = (() => {
     roomCode    = null;
     myId        = null;
     mySlot      = -1;
-    _onPlayers([]);
+    _emit(_playersListeners, []);
   }
 
   function isPublic() { return isPublicRoom; }
@@ -465,9 +473,12 @@ const Network = (() => {
   function getRoomCode() { return roomCode; }
 
   /* ── Event registration ────────────────────────────────── */
-  function onMessage(fn) { _onMsg     = fn || (() => {}); }
-  function onPlayers(fn) { _onPlayers = fn || (() => {}); }
-  function onStatus(fn)  { _onStatus  = fn || (() => {}); }
+  /* Push a listener onto the array (multiple subscribers supported).
+     Lobby + Multiplayer both call these; previously the second call
+     overwrote the first, which broke roster updates in the lobby. */
+  function onMessage(fn) { if (typeof fn === 'function') _msgListeners.push(fn); }
+  function onPlayers(fn) { if (typeof fn === 'function') _playersListeners.push(fn); }
+  function onStatus(fn)  { if (typeof fn === 'function') _statusListeners.push(fn); }
 
   return {
     host, join, send, disconnect,
