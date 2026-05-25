@@ -321,6 +321,20 @@ const Multiplayer = (() => {
         case 'battle-end':
           // Host's next Screen.show (back to screen-game) will arrive via
           // the regular 'screen' message and switch us out of spectator UI.
+          if (typeof BattleUI !== 'undefined') BattleUI.hideWaitingFor?.();
+          break;
+
+        /* ── PHASE 7 — Per-player combat ─────────────── */
+        case 'mp-turn':
+          // Host announces whose turn it is. Owner gets action bar; others wait.
+          _handleMpTurn(msg);
+          break;
+
+        case 'mp-action':
+          // Remote player sent their action — apply on host (the authoritative one)
+          if (Network.isHost() && typeof Battle !== 'undefined' && Battle.applyRemoteAction) {
+            Battle.applyRemoteAction(msg.uid, msg.action);
+          }
           break;
       }
     } catch (err) {
@@ -691,6 +705,8 @@ const Multiplayer = (() => {
     // Hook engine functions for broadcast (host) AND apply (client).
     _installHostHooks();
     _installClientLocks();
+    _installBattleStartWrap();   // Phase 7 — inject MP party into Battle.start
+    _installMpCombatHooks();     // Phase 6/7 — dialogue AFK timer + combat hooks
     // Route incoming messages from peers to our applier.
     Network.onMessage(_applyMessage);
   }
@@ -703,7 +719,215 @@ const Multiplayer = (() => {
   /** Are we currently in the per-player setup phase (quiz/charselect)? */
   function isPerPlayerMode() { return _perPlayerMode; }
 
-  return { init, startGame, isStarted, lockInCharacter, isPerPlayerMode };
+  /* ══════════════════════════════════════════════════════════
+     PHASE 6 — DIALOGUE AFK AUTO-ADVANCE
+     If the host is afk on a dialogue line, auto-click it after
+     12 seconds so the story doesn't stall for everyone. Cleared
+     and restarted on each new line. Hooks into the existing
+     Dialogue.show flow without changing single-player behavior. */
+  const DIALOGUE_AFK_MS = 12000;
+  let _dialogueTimer = null;
+  function _armDialogueTimer() {
+    if (!Network.isHost() || !Network.isOnline()) return;
+    if (_dialogueTimer) clearTimeout(_dialogueTimer);
+    _dialogueTimer = setTimeout(() => {
+      // Simulate a host click to advance — this is the same path manual
+      // clicks take, so the broadcast + visual cue all stay consistent.
+      const box = document.getElementById('dialogue-box');
+      if (box) box.click();
+    }, DIALOGUE_AFK_MS);
+  }
+  function _clearDialogueTimer() {
+    if (_dialogueTimer) { clearTimeout(_dialogueTimer); _dialogueTimer = null; }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     PHASE 7 — PER-PLAYER COMBAT
+     Each connected player owns one party slot. When it's their
+     slot's turn, the host broadcasts an mp-turn message naming
+     the owner; only that player's tab shows the action bar.
+     Others see a "WAITING FOR [name]" overlay. The active player
+     clicks STRIKE/ABILITY/DEFEND/WAIT — their action is sent to
+     the host as mp-action; the host calls Battle.applyRemoteAction
+     which runs the existing combat code path. */
+
+  /** Is this peerId the local player? */
+  function isMyPeerId(peerId) {
+    return Network.isOnline() && Network.getMyId() === peerId;
+  }
+
+  /** Host calls this when it's about to wait for a remote player.
+      Broadcasts the turn so the remote player's tab can show the action bar. */
+  function broadcastTurn(player) {
+    if (!Network.isHost()) return;
+    Network.send({
+      type: 'mp-turn',
+      uid: player.uid,
+      ownerPeerId: player.mpOwnerId,
+      ownerName: player.mpOwnerName || player.displayName
+    });
+  }
+
+  /* Wrap Battle.start so the host injects multiplayer party members into
+     the allies list (after slot 0 which stays the host's character).
+     Each MP ally gets mpOwnerId/mpOwnerName so battle.js's _playerTurn
+     can route their turn to the remote tab. */
+  function _installBattleStartWrap() {
+    if (typeof Battle === 'undefined' || !Battle.start) return;
+    const _origStart = Battle.start;
+    Battle.start = function(config) {
+      const party = (typeof GameState !== 'undefined') && GameState.multiplayerParty;
+      if (Network.isOnline() && party && party.length > 1 && Network.isHost()) {
+        // Build allies list: MP players first (slots 1+), then story NPCs to fill
+        const mpAllies = party.filter(p => p.slot > 0).map(p => ({
+          key: p.class,                  // class doubles as a key into COMBAT_STATS
+          _mpOwnerId: p.peerId,
+          _mpOwnerName: p.name,
+          _mpStats: p.stats,
+          _mpFlags: p.flags
+        }));
+        const origAllies = (config.allies || []).slice();
+        const totalSlots = 4 - 1; // 4 in party, minus the player (slot 0)
+        const npcSlots = Math.max(0, totalSlots - mpAllies.length);
+        config = {
+          ...config,
+          allies: [...mpAllies, ...origAllies.slice(0, npcSlots)],
+          _mpEnhanced: true
+        };
+      }
+      _origStart(config);
+    };
+  }
+
+  /* Wrap CharState.build so MP ally specs build PLAYER-style combatants
+     with the right per-player stats and ownership. Triggered by the
+     _mpOwnerId presence in the spec object — set in _installBattleStartWrap. */
+  function _installCharStateWrap() {
+    if (typeof CharState === 'undefined' || !CharState.build) return;
+    // Battle.start passes spec.key to CharState.build, but doesn't pass the
+    // full spec — so we instead wrap the start function's ally loop by
+    // monkey-patching the call site path. Cleaner: provide a hook that
+    // intercepts ally construction. We do this through a custom event the
+    // wrapped Battle.start dispatches just before TurnMgr.begin.
+    // (Skipped — handled inline by the simpler approach below.)
+  }
+
+  /* On mp-turn (everyone receives):
+       - if you're the owner → show local action bar via Battle re-prompt
+       - else → show "WAITING FOR [name]" overlay */
+  function _handleMpTurn(msg) {
+    if (isMyPeerId(msg.ownerPeerId)) {
+      // I'm the active player. Find my combatant in MY local battle state.
+      const party = (typeof Battle !== 'undefined' && Battle.getParty) ? Battle.getParty() : [];
+      const me = party.find(c => c.uid === msg.uid);
+      if (!me) return;
+      // Show our action bar locally. Bind buttons to send mp-action to host
+      // instead of running locally (host is the authoritative executor).
+      _showLocalActionBarForRemote(me);
+    } else {
+      // Someone else's turn — show waiting overlay on this tab
+      if (typeof BattleUI !== 'undefined' && BattleUI.showWaitingFor) {
+        BattleUI.showWaitingFor(msg.ownerName);
+      }
+    }
+  }
+
+  function _hideAllRemoteUI() {
+    if (typeof BattleUI !== 'undefined') {
+      BattleUI.hideWaitingFor?.();
+      BattleUI.hideCommandMenu?.();
+      const bar = document.getElementById('btl-action-bar');
+      if (bar) bar.classList.add('hidden');
+    }
+  }
+
+  /* Active remote player: enable a stripped-down action bar that, instead
+     of executing locally, sends mp-action messages back to the host. */
+  function _showLocalActionBarForRemote(me) {
+    if (typeof BattleUI === 'undefined') return;
+    BattleUI.hideWaitingFor?.();
+    const bar = document.getElementById('btl-action-bar');
+    if (bar) bar.classList.remove('hidden');
+    BattleUI.showCommandMenu?.();
+    BattleUI.log?.(`Your turn, ${me.displayName}!`);
+
+    // Bind the action buttons to broadcast actions instead of executing locally
+    const enemies = (Battle.getEnemies?.() || []).filter(e => e.alive);
+    const pickEnemy = (cb) => {
+      if (enemies.length === 0) return;
+      if (enemies.length === 1) { cb(enemies[0]); return; }
+      BattleUI.enableTargetSelect?.(enemies, cb);
+    };
+
+    const send = (action) => {
+      _hideAllRemoteUI();
+      Network.send({ type: 'mp-action', uid: me.uid, action });
+    };
+
+    const doStrike = () => pickEnemy(t => send({ kind: 'strike', targetUid: t.uid }));
+    const doAbility = () => {
+      const skills = (me.combat?.skills || []).filter(s => me.stamina >= s.cost);
+      if (skills.length === 0) { BattleUI.log?.('Not enough SP for any skill.', 'miss'); return; }
+      // Show a quick skill picker (re-use BattleUI.buildSkillMenu — it sets
+      // its own callback to a function we provide).
+      if (BattleUI.buildSkillMenu) {
+        BattleUI.buildSkillMenu(me, (skill) => {
+          const idx = me.combat.skills.indexOf(skill);
+          if (skill.isHeal) {
+            // Heal targets a party member — pick from local party
+            const partyAlive = (Battle.getParty?.() || []).filter(p => p.alive);
+            if (partyAlive.length === 1) {
+              send({ kind: 'heal', skillIdx: idx, healTargetUid: partyAlive[0].uid });
+            } else {
+              BattleUI.enableTargetSelect?.(partyAlive, t =>
+                send({ kind: 'heal', skillIdx: idx, healTargetUid: t.uid })
+              );
+            }
+          } else {
+            pickEnemy(t => send({ kind: 'skill', skillIdx: idx, targetUid: t.uid }));
+          }
+        });
+      }
+    };
+    const doDefend = () => send({ kind: 'defend' });
+    const doWait = () => send({ kind: 'wait' });
+
+    const btn = (id, fn) => {
+      const el = document.getElementById(id);
+      if (el) el.onclick = fn;
+    };
+    btn('bact-strike', doStrike);
+    btn('bact-ability', doAbility);
+    btn('bact-defend', doDefend);
+    btn('bact-wait', doWait);
+    btn('btl-end-turn', doWait);
+  }
+
+  /* ── Add Phase 6/7 message handlers — runs at init() time ── */
+  function _installMpCombatHooks() {
+    // Hook dialogue afk timer onto host's Dialogue.show
+    if (typeof Dialogue !== 'undefined' && Dialogue.show) {
+      const _origShow = Dialogue.show;
+      Dialogue.show = function(entries, done) {
+        _origShow.call(Dialogue, entries, done);
+        _armDialogueTimer();
+      };
+    }
+    // Clicking the dialogue box manually resets the timer (and starts a new one)
+    const box = document.getElementById('dialogue-box');
+    if (box) box.addEventListener('click', () => {
+      _clearDialogueTimer();
+      // The original click handler advances the dialogue; we re-arm the
+      // timer on the next tick if there are still lines queued.
+      setTimeout(_armDialogueTimer, 50);
+    });
+  }
+
+  return {
+    init, startGame, isStarted, lockInCharacter, isPerPlayerMode,
+    // Phase 7 hooks
+    isMyPeerId, broadcastTurn
+  };
 })();
 
 // Self-init — runs after every other script has loaded (this file is last

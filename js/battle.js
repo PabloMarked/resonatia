@@ -197,7 +197,14 @@ const Battle = (() => {
         stamina:    overrides.stamina ?? template.stamina,
         maxStamina: overrides.stamina ?? template.stamina,
         combat:     template,
-        stats:      template.stats || GameState.player.stats,
+        // overrides.stats lets multiplayer inject per-player stats (each
+        // connected player rolled their own quiz + species selection).
+        stats:      overrides.stats || template.stats || GameState.player.stats,
+        // Multiplayer ownership — set when this combatant represents a
+        // remote player's character. _playerTurn checks this to decide
+        // whether to show the local action bar or wait for a remote action.
+        mpOwnerId:   overrides.mpOwnerId   || null,
+        mpOwnerName: overrides.mpOwnerName || null,
         alive:      true,
         defending:  false,
         dazeNextTurn: false,
@@ -652,6 +659,24 @@ const Battle = (() => {
         panel.classList.add('hidden');
         this._el('btl-action-bar').classList.remove('hidden');
       };
+    },
+
+    /* Multiplayer "waiting for remote player" overlay. Shown on host (and
+       other clients) when it's a non-local player's combat turn. */
+    showWaitingFor(name) {
+      let el = document.getElementById('btl-mp-waiting');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'btl-mp-waiting';
+        el.className = 'btl-mp-waiting';
+        document.body.appendChild(el);
+      }
+      el.innerHTML = `<span class="btl-mp-wait-icon">⧖</span> Waiting for <strong>${name}</strong>…`;
+      el.classList.remove('hidden');
+    },
+    hideWaitingFor() {
+      const el = document.getElementById('btl-mp-waiting');
+      if (el) el.classList.add('hidden');
     },
 
     enableTargetSelect(enemies, onSelect) {
@@ -1175,6 +1200,16 @@ const Battle = (() => {
       return;
     }
 
+    // MULTIPLAYER: if this slot belongs to a remote player, do NOT show the
+    // local action bar. Instead wait (with timer) for that player's action
+    // to arrive via the network. Broadcast a 'mp-turn' notification so the
+    // remote player's tab can show its own action bar.
+    if (player.mpOwnerId && typeof Multiplayer !== 'undefined'
+        && Multiplayer.isMyPeerId && !Multiplayer.isMyPeerId(player.mpOwnerId)) {
+      _waitForRemoteAction(player);
+      return;
+    }
+
     BattleUI.setTurnIndicator(true);
     BattleUI.showCommandMenu();
     BattleUI.log('Choose your action.');
@@ -1217,6 +1252,90 @@ const Battle = (() => {
       }
     };
     document.addEventListener('keydown', state._keyHandler);
+  }
+
+  /* MULTIPLAYER: when a remote player's turn arrives, hide all local UI and
+     show a "WAITING FOR [name]…" overlay with a 25-second timer. If the
+     remote player doesn't act in time, auto-strike the first living enemy
+     so the game doesn't stall. */
+  const REMOTE_TURN_TIMEOUT_MS = 25000;
+  let _remoteTimer = null;
+  let _remoteActionPending = null;   // {player, resolved}
+
+  function _waitForRemoteAction(player) {
+    BattleUI.hideCommandMenu();
+    BattleUI.setTurnIndicator(false);
+    BattleUI.log(`Waiting for ${player.mpOwnerName || 'remote player'}…`);
+    BattleUI.showWaitingFor(player.mpOwnerName || player.displayName);
+
+    // Tell the remote player it's their turn (broadcast — everyone hears it,
+    // but only the matching owner shows their action bar).
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.broadcastTurn) {
+      Multiplayer.broadcastTurn(player);
+    }
+
+    _remoteActionPending = { player, resolved: false };
+
+    if (_remoteTimer) clearTimeout(_remoteTimer);
+    _remoteTimer = setTimeout(() => {
+      if (!_remoteActionPending || _remoteActionPending.resolved) return;
+      _remoteActionPending.resolved = true;
+      BattleUI.hideWaitingFor();
+      BattleUI.log(`${player.mpOwnerName || player.displayName} is away — auto-attack!`, 'miss');
+      const targets = state.enemies.filter(e => e.alive);
+      if (targets.length === 0) { TurnMgr.nextTurn(); return; }
+      // Default: basic strike on first living enemy
+      _executePlayerAttack(player, targets[0], null);
+    }, REMOTE_TURN_TIMEOUT_MS);
+  }
+
+  /** PUBLIC: called by multiplayer.js when a remote player's action arrives.
+      action = { kind: 'strike'|'defend'|'wait'|'skill'|'heal',
+                 targetUid?: string, skillIdx?: number, healTargetUid?: string } */
+  function applyRemoteAction(uid, action) {
+    if (!state) return;
+    const player = state.party.find(p => p.uid === uid);
+    if (!player || !player.alive) { TurnMgr.nextTurn(); return; }
+    if (_remoteActionPending && _remoteActionPending.player === player) {
+      _remoteActionPending.resolved = true;
+    }
+    if (_remoteTimer) { clearTimeout(_remoteTimer); _remoteTimer = null; }
+    BattleUI.hideWaitingFor();
+
+    if (action.kind === 'defend') {
+      player.defending = true;
+      BattleUI.log(`${player.displayName} takes a defensive stance. Incoming damage halved.`);
+      setTimeout(() => TurnMgr.nextTurn(), 1200);
+      return;
+    }
+    if (action.kind === 'wait') {
+      BattleUI.log(`${player.displayName} waits and catches their breath.`);
+      setTimeout(() => TurnMgr.nextTurn(), 1000);
+      return;
+    }
+    if (action.kind === 'heal') {
+      const skill = (player.combat.skills || []).find(s => s.isHeal);
+      const target = state.party.find(p => p.uid === action.healTargetUid) || player;
+      if (skill && target && target.alive) {
+        _executePlayerHeal(player, target, skill);
+      } else {
+        TurnMgr.nextTurn();
+      }
+      return;
+    }
+    // skill or strike — pick target from enemies
+    const target = state.enemies.find(t => t.uid === action.targetUid && t.alive);
+    if (!target) {
+      const fallback = state.enemies.find(e => e.alive);
+      if (!fallback) { TurnMgr.nextTurn(); return; }
+      _executePlayerAttack(player, fallback, null);
+      return;
+    }
+    let skill = null;
+    if (action.kind === 'skill' && typeof action.skillIdx === 'number') {
+      skill = (player.combat.skills || [])[action.skillIdx] || null;
+    }
+    _executePlayerAttack(player, target, skill);
   }
 
   function _playerAttack(player, skill) {
@@ -1652,7 +1771,22 @@ const Battle = (() => {
 
     const allies = [];
     (config.allies || []).forEach(spec => {
-      const a = CharState.build(spec.key, false, true, null, null);
+      let a;
+      if (spec._mpOwnerId) {
+        // Multiplayer ally: build as a PLAYER-class combatant with the
+        // remote player's own stats + skin tone + gender. The mpOwner
+        // fields route turn ownership through battle.js's _playerTurn.
+        a = CharState.build(spec.key, true, false,
+          spec._mpFlags?.skinTone, spec._mpFlags?.gender,
+          {
+            stats:       spec._mpStats,
+            mpOwnerId:   spec._mpOwnerId,
+            mpOwnerName: spec._mpOwnerName
+          });
+        a.displayName = spec._mpOwnerName || spec.key;
+      } else {
+        a = CharState.build(spec.key, false, true, null, null);
+      }
       allies.push(a);
     });
 
@@ -1789,7 +1923,22 @@ const Battle = (() => {
 
     const allies = [];
     (config.allies || []).forEach(spec => {
-      allies.push(CharState.build(spec.key, false, true, null, null));
+      let a;
+      if (spec._mpOwnerId) {
+        // Spectator client building an MP ally — match the host's setup
+        // exactly so uids align and mp-turn messages route correctly.
+        a = CharState.build(spec.key, true, false,
+          spec._mpFlags?.skinTone, spec._mpFlags?.gender,
+          {
+            stats:       spec._mpStats,
+            mpOwnerId:   spec._mpOwnerId,
+            mpOwnerName: spec._mpOwnerName
+          });
+        a.displayName = spec._mpOwnerName || spec.key;
+      } else {
+        a = CharState.build(spec.key, false, true, null, null);
+      }
+      allies.push(a);
     });
 
     const enemies = [];
@@ -1902,12 +2051,26 @@ const Battle = (() => {
     return {
       background: state._background || 'cultist_room',
       enemies: state.enemies.map(e => ({ key: e.key })),
-      allies:  state.party.slice(1).map(a => ({ key: a.key }))
+      // Allies include MP ownership metadata so spectators build matching
+      // combatants (same uids, same mpOwnerId routing).
+      allies:  state.party.slice(1).map(a => ({
+        key: a.key,
+        _mpOwnerId:   a.mpOwnerId   || undefined,
+        _mpOwnerName: a.mpOwnerName || undefined,
+        _mpStats:     a.mpOwnerId ? a.stats : undefined,
+        _mpFlags:     a.mpOwnerId ? { skinTone: a.skinTone, gender: a.gender } : undefined
+      }))
       // intro/preBattle/onWin/onLose intentionally omitted — clients
       // receive intro via Phase 2 dialogue sync; outcomes are host-only.
     };
   }
 
-  return { start, startAsSpectator, snapshot, applySnapshot, getActiveConfig };
+  return {
+    start, startAsSpectator, snapshot, applySnapshot, getActiveConfig,
+    applyRemoteAction,
+    // Lets multiplayer.js read the current party so it can build remote-turn payloads
+    getParty: () => state ? state.party.slice() : [],
+    getEnemies: () => state ? state.enemies.slice() : []
+  };
 
 })();

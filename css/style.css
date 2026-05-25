@@ -3047,4 +3047,45 @@ ol.manual-list li::before {
   font-style: italic;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 7 — COMBAT "WAITING FOR REMOTE PLAYER" OVERLAY
+   Appears center-top during battle when a non-local player's turn
+   is active. Smaller than the full waiting-room modal — gameplay
+   keeps showing underneath since you're watching their move.
+   ═══════════════════════════════════════════════════════════════ */
+.btl-mp-waiting {
+  position: fixed;
+  top: 80px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 9100;
+  padding: 0.7rem 1.4rem;
+  background: rgba(8, 6, 14, 0.92);
+  border: 1px solid var(--gold-dim);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7);
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  pointer-events: none;
+  animation: btlWaitPulse 2.5s ease-in-out infinite;
+}
+.btl-mp-waiting strong {
+  color: var(--gold-light);
+  font-weight: normal;
+  letter-spacing: 0.18em;
+}
+.btl-mp-wait-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  color: var(--gold);
+  font-size: 1.1rem;
+  vertical-align: middle;
+}
+.btl-mp-waiting.hidden { display: none; }
+@keyframes btlWaitPulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1;   }
+}
+
 .hidden { display: none !important; }
